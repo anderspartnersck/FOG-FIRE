@@ -10,7 +10,7 @@ A Castle Killscreen game by **Anders & Partners**.
 >
 > **Early.** Every mech, starfield and explosion is drawn procedurally — there is no sprite art in this game yet at all. It plays, but it looks like what it is: a blockout.
 >
-> The finished Castle Killscreen titles are **[SUCK UP](https://anderspartnersck.github.io/suck-up/)**
+> The finished Castle Killscreen titles are **[SUCK UP](https://anderspartnersck.github.io/suck-up/3d.html?arcade)**
 > and **[ONE-TIMER: THE HIGH TABLE](https://anderspartnersck.github.io/high-table/)**. This repo
 > exists so the work can happen in the open, not because the work is done.
 

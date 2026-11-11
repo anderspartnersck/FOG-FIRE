@@ -488,7 +488,9 @@ const SPEC={backdraft:'OPENING GASKETS. PRIMING.',namor:'DRUM-SOLO FROM MOBY DIC
 let bark='',barkT=0;function announce(s){bark=s;barkT=110;}
 
 /* ============================ GAME STATE ============================ */
-let GS='title';
+let GS='boot';   // UI-AUDIT 1110: boot = the CK ident, then the title (?noboot skips it)
+let bootT=0,DEMO=false,demoT=0,idleT=0;const QS=new URLSearchParams((typeof location!=='undefined'&&location.search)||'');if(QS.has('noboot'))GS='title';
+const ATTRACT_F=+(QS.get('attract')||25)*60;   // title idle (frames) before the CPU demo
 let heroes=[],foes=[],theaterIdx=0,waveIdx=0,spawnQ=[],spawnT=0,score=0;
 let selIdx=0,selP2=1,coop=false,p2cpu=true,blink=0,banner='',bannerT=0;
 const hud={flash:0};
@@ -499,6 +501,9 @@ function saveUnlocks(){try{localStorage.setItem('faf_unlocks',JSON.stringify(unl
 function locked(p){return p.lock==='normal'?!unlocks.normal:p.lock==='hardest'?!unlocks.hardest:p.lock==='jailbreak'?!unlocks.jail:false;}
 
 function menuKey(code){
+  idleT=0;
+  if(GS==='boot'){GS='title';if(code==='Enter'||code==='Space')menuKey(code);return;}   // a press during the ident = PRESS START
+  if(DEMO){endDemo();return;}                                                            // any key ends the attract demo
   if(GS==='title'){if(code==='Enter'||code==='Space')GS='select';return;}
   if(GS==='select'){
     const cols=4,n=PILOTS.length;
@@ -516,13 +521,47 @@ function menuKey(code){
     return;}
   if(GS==='briefing'){if(code==='Enter'||code==='Space')startTheater(theaterIdx);return;}
   if(GS==='win'||GS==='gameover'){if(code==='Enter'){GS='select';}return;}
-  if(GS==='play'&&code==='Escape')GS='select';
+  if(GS==='play'&&(code==='Escape'||code==='KeyP')){GS='paused';pauseI=0;pauseHow=false;for(const k in keys)keys[k]=false;return;}
+  if(GS==='paused'){ // UI-AUDIT 1110: the pause menu (ESC / P / START). The sim does not tick while paused.
+    if(pauseHow){if(code==='Enter'||code==='Space'||code==='Escape')pauseHow=false;return;}
+    if(code==='ArrowUp')pauseI=(pauseI+PAUSE.length-1)%PAUSE.length;
+    else if(code==='ArrowDown')pauseI=(pauseI+1)%PAUSE.length;
+    else if(code==='Escape'||code==='KeyP')GS='play';
+    else if(code==='Enter'||code==='Space'){const it=PAUSE[pauseI];
+      if(it==='RESUME')GS='play';else if(it==='HOW TO PLAY')pauseHow=true;
+      else if(it==='BACK TO PILOT SELECT')GS='select';else if(it==='QUIT TO TITLE')GS='title';else if(it==='QUIT TO ARCADE')location.href="../COLEMAN'S KEEP.html";}
+    return;}
 }
+const PAUSE=['RESUME','HOW TO PLAY','BACK TO PILOT SELECT','QUIT TO TITLE'].concat(QS.get('from')==='keep'?['QUIT TO ARCADE']:[]);let pauseI=0,pauseHow=false;   // Q259: ?from=keep adds QUIT TO ARCADE
+function drawPause(){ // UI-AUDIT 1110
+  X.fillStyle='rgba(5,7,13,.72)';X.fillRect(0,0,W,H);X.textAlign='center';
+  if(pauseHow){
+    X.fillStyle='#7fd0ff';X.font='bold 26px "Courier New"';X.fillText('HOW TO PLAY',W/2,92);
+    const L=[['P1  ARROWS','move · UP jump · DOWN block'],['P1  A / S / D','jab · heavy · SPECIAL (at ★READY)'],
+      ['P2  T F G H','move · jump · block (co-op)'],['P2  J / K / L','jab · heavy · special'],
+      ['THE METER','fills as you fight; full = your suit\'s special'],
+      ['DOWN?','a squadmate standing close revives you at half hull'],
+      ['THE GOAL','clear every wave · SEEK & DESTROY = endless'],
+      ['PILOT SELECT','C co-op · X difficulty · V campaign / seek & destroy'],['ESC · P · START','pause']];
+    X.font='15px "Courier New"';
+    for(let i=0;i<L.length;i++){X.textAlign='right';X.fillStyle='#ffcf33';X.fillText(L[i][0],W/2-150,150+i*34);
+      X.textAlign='left';X.fillStyle='#cfd6e0';X.fillText(L[i][1],W/2-130,150+i*34);}
+    X.textAlign='center';X.fillStyle='#9fb0bd';X.font='13px "Courier New"';X.fillText('[ENTER] / [ESC] back',W/2,H-40);X.textAlign='left';return;}
+  X.fillStyle='#7fd0ff';X.font='bold 34px "Courier New"';X.fillText('PAUSED',W/2,H/2-110);
+  for(let i=0;i<PAUSE.length;i++){const sel=i===pauseI;X.fillStyle=sel?'#ffcf33':'#9fb0bd';X.font=(sel?'bold 20px':'18px')+' "Courier New"';
+    X.fillText((sel?'▶ ':'')+PAUSE[i]+(sel?' ◀':''),W/2,H/2-40+i*38);}
+  X.fillStyle='#48505e';X.font='12px "Courier New"';X.fillText('↑ ↓ choose · ENTER go · ESC resume',W/2,H/2+130);X.textAlign='left';}
 
 function startCampaign(){score=0;heroes=[];
   const a=new Actor(PILOTS[selIdx],W*0.30,'hero');a.input=1;heroes.push(a);
   if(coop){const b=new Actor(PILOTS[selP2],W*0.42,'hero');b.input=2;b.cpu=p2cpu;heroes.push(b);}
   if(gameMode==='seek'){startSeek();}else{theaterIdx=0;GS='briefing';bannerT=0;}}
+// ATTRACT (Q255): a CPU-flown demo run of the first theater behind a DEMO banner. Never a real run: no score kept,
+// nothing unlocked, any key / pad button = back to the title, and it ends itself after ~40 s, a win, a wipe or a theater change.
+function startDemo(){DEMO=true;demoT=0;const keep={selIdx,coop};score=0;heroes=[];
+  const pool=PILOTS.filter(p=>!locked(p)),a=new Actor(pool[Math.floor(rnd()*pool.length)],W*0.30,'hero');a.input=2;a.cpu=true;heroes.push(a);
+  theaterIdx=0;startTheater(0);selIdx=keep.selIdx;coop=keep.coop;}
+function endDemo(){DEMO=false;heroes=[];foes=[];spawnQ=[];shots.length=0;fx.length=0;score=0;GS='title';idleT=0;}
 function startSeek(){stage=THEATERS[3];seedWar(stage);fog=stage.fog||0.4;
   foes=[];shots.length=0;fx.length=0;seekWave=0;
   for(const h of heroes){h.x=W*0.3+(h.input===2?80:0);h.y=GROUND;h.hp=h.maxhp;h.down=false;h.dead=false;h.state='idle';h.meter=40;}
@@ -598,6 +637,8 @@ function pollPads(){
       if(GS==='play'){
         keys[map.left]=d.left; keys[map.right]=d.right; keys[map.up]=d.up; keys[map.block]=d.down;
         keys[map.jab]=bp(0); keys[map.heavy]=bp(2); keys[map.spec]=bp(1);
+        {const pr=_padMenuPrev[p],st=bp(9);if(st&&!pr.start9)menuKey('Escape');pr.start9=st;} // START = pause
+        if(DEMO&&b.some((x,i)=>bp(i)))endDemo();   // the attract demo: any pad button = back to the title
       }else{
         // menu nav: edge-trigger -> menuKey()
         const prev=_padMenuPrev[p];
@@ -617,6 +658,9 @@ function pollPads(){
 /* ============================ LOOP ============================ */
 function loop(now){requestAnimationFrame(loop);blink=(blink+1)%60;
   pollPads();
+  if(GS==='boot'&&++bootT>170)GS='title';
+  if(GS==='title'&&!DEMO&&ATTRACT_F>0&&++idleT>ATTRACT_F)startDemo();   // ?attract=0 = off
+  if(DEMO&&(++demoT>40*60||GS!=='play'))endDemo();
   if(GS==='play'){
     if(hitstop>0)hitstop--;
     else{
@@ -639,6 +683,7 @@ function loop(now){requestAnimationFrame(loop);blink=(blink+1)%60;
         if(gameMode==='seek'){nextSeekWave();announce('WAVE '+seekWave);}
         else if(waveIdx<stage.waves.length-1){waveIdx++;loadWave();announce('WAVE '+(waveIdx+1));}
         else if(theaterIdx<THEATERS.length-1){theaterIdx++;GS='briefing';}
+        else if(DEMO){endDemo();}
         else{GS='win';unlocks.normal=true;unlocks.jail=true;
           if(DIFFS[diffIdx].n==='HARDEST')unlocks.hardest=true;saveUnlocks();}
       }
@@ -654,6 +699,7 @@ function loop(now){requestAnimationFrame(loop);blink=(blink+1)%60;
 function render(t){
   X.save();
   if(shake>0){X.translate((rnd()-0.5)*shake,(rnd()-0.5)*shake);shake*=0.85;if(shake<0.4)shake=0;}
+  if(GS==='boot'){drawBoot();X.restore();return;}
   if(GS==='title'){drawTitle(t);X.restore();return;}
   if(GS==='select'){drawSelect(t);X.restore();return;}
   if(GS==='briefing'){drawBriefing(t);X.restore();return;}
@@ -663,6 +709,9 @@ function render(t){
   drawShots();drawFX();drawHUD();
   if(hud.flash>0){X.fillStyle=`rgba(255,40,40,${hud.flash/20})`;X.fillRect(0,0,W,H);}
   if(GS==='win'||GS==='gameover')drawEnd();
+  if(GS==='paused')drawPause();
+  if(DEMO){X.fillStyle='rgba(5,7,13,.78)';X.fillRect(0,H*0.2-26,W,52);X.textAlign='center';X.fillStyle='#ffcf33';X.font='bold 20px "Courier New"';
+    X.fillText('FOG AND FIRE  ·  DEMO',W/2,H*0.2-2);if(blink<38){X.fillStyle='#fff';X.font='bold 14px "Courier New"';X.fillText('PRESS ENTER',W/2,H*0.2+18);}X.textAlign='left';}
   X.restore();
 }
 function drawHUD(){
@@ -754,6 +803,13 @@ function drawBriefing(t){const s=THEATERS[theaterIdx];stage=s;seedWar(s);fog=s.f
   X.fillText('Squad: '+heroes.map(h=>h.cfg.pilot).join(' + '),W/2,270);
   if(blink<40){X.fillStyle='#fff';X.font='bold 16px "Courier New"';X.fillText('[ENTER] DROP IN',W/2,340);}
   X.textAlign='left';}
+
+/* ---- BOOT: the Castle Killscreen ident (UI-AUDIT 1110) ---- */
+function drawBoot(){const a=Math.min(1,bootT/30)*Math.min(1,(170-bootT)/30);X.fillStyle='#000';X.fillRect(0,0,W,H);X.globalAlpha=Math.max(0,a);X.textAlign='center';
+  X.fillStyle='#48505e';X.font='13px "Courier New"';X.fillText('ANDERS & PARTNERS LLC  PRESENTS',W/2,H/2-58);
+  X.fillStyle='#7fd0ff';X.font='bold 40px "Courier New"';X.fillText('CASTLE KILLSCREEN',W/2,H/2);
+  X.fillStyle='#ff5bc8';X.fillRect(W/2-190,H/2+16,380*Math.min(1,bootT/90),3);
+  X.fillStyle='#9fb0bd';X.font='12px "Courier New"';X.fillText('A CASTLE KILLSCREEN TITLE',W/2,H/2+44);X.globalAlpha=1;X.textAlign='left';}
 
 /* ---- END ---- */
 function drawEnd(){X.fillStyle='rgba(0,0,0,.6)';X.fillRect(0,H/2-70,W,140);

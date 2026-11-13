@@ -2,6 +2,9 @@
 
 **Play it in your browser: <https://anderspartnersck.github.io/FOG-FIRE/>**
 
+**3D edition: <https://anderspartnersck.github.io/FOG-FIRE/3d.html>** — the same game with 3D-rendered suits,
+the Lunar Crawler and layered 3D theaters. Press **3** in a fight to cycle the looks (3D, earlier 3D suits, original).
+
 A mech action game for one player, or two in co-op. One hive, and a cult that runs the solar system.
 
 **Status:** an early build. It plays start to finish, but there is no sprite art yet: every mech, starfield

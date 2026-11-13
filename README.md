@@ -58,3 +58,13 @@ Five suits unlock after an ARCADE clear. That is the only thing the game saves i
 
 Created by **Joseph Coleman**, with Claude, ChatGPT, and Blender.
 A Castle Killscreen game by Anders & Partners.
+
+The 3D suits and stages are built from royalty-free BlenderKit models,
+restyled and rendered for this game. Model authors: ALEX SAMUSENKO, Abbos
+Mirzayev, Alojis studio Bdl, Avishka Induwara, Bridge Studio, CAN OF TEXTURES,
+Crazy0_0Cat, Danil Solomyanko, Demycs, EB Adventure Photoscans, Filipe Lopes,
+Filippo Lottici, Gabriel Dobrachinski, James Middleton, Mohammed Hossain, Moslem
+Alipour, N9 Studio, Nandu M, OuterSpaceSimon, PKO Studio, Patrik, Per's Scan
+Collection, Pierre-Louis Baril, Remnants of Eden Pierre, SHK Studio, Scarit
+Editz, Soran Mohammadi, Steven Seidler, Thanh Cong, antoine f, and peeraphon
+viriyahirunpaiboon.

@@ -493,7 +493,7 @@ let bark='',barkT=0;function announce(s){bark=s;barkT=110;}
 
 /* ============================ GAME STATE ============================ */
 let GS='boot';   // UI-AUDIT 1110: boot = the CK ident, then the title (?noboot skips it)
-let bootT=0,DEMO=false,demoT=0,idleT=0;const QS=new URLSearchParams((typeof location!=='undefined'&&location.search)||'');if(QS.has('noboot'))GS='title';
+let endT=0,bootT=0,DEMO=false,demoT=0,idleT=0;const QS=new URLSearchParams((typeof location!=='undefined'&&location.search)||'');if(QS.has('noboot'))GS='title';
 const ATTRACT_F=+(QS.get('attract')||25)*60;   // title idle (frames) before the CPU demo
 let heroes=[],foes=[],theaterIdx=0,waveIdx=0,spawnQ=[],spawnT=0,score=0;
 let selIdx=0,selP2=1,coop=false,p2cpu=true,blink=0,banner='',bannerT=0;
@@ -506,7 +506,7 @@ function locked(p){return p.lock==='normal'?!unlocks.normal:p.lock==='hardest'?!
 
 function menuKey(code){
   idleT=0;
-  if(GS==='boot'){GS='title';if(code==='Enter'||code==='Space')menuKey(code);return;}   // a press during the ident = PRESS START
+  if(GS==='boot')return;   // CK BOOT STANDARD (BOOT-STANDARD.md): the CASTLE KILLSCREEN ident plays out; presses are eaten
   if(DEMO){endDemo();return;}                                                            // any key ends the attract demo
   if(GS==='title'){if((code==='Enter'||code==='Space')&&!(typeof Mech3D!=='undefined'&&Mech3D.ready&&!Mech3D.allReady()))GS='select';return;}
   if(GS==='select'){
@@ -524,7 +524,7 @@ function menuKey(code){
     if(code==='Enter'){if(locked(PILOTS[selIdx]))return;if(coop&&locked(PILOTS[selP2]))return;startCampaign();}
     return;}
   if(GS==='briefing'){if((code==='Enter'||code==='Space')&&!(typeof Mech3D!=='undefined'&&Mech3D.ready&&!Mech3D.allReady()))startTheater(theaterIdx);return;}
-  if(GS==='win'||GS==='gameover'){if(code==='Enter'){GS='select';}return;}
+  if(GS==='win'||GS==='gameover'){if(code==='Enter'&&endT>54){GS='select';}return;}   // CK BOOT: ~0.9 s results hold
   if(GS==='play'&&(code==='Escape'||code==='KeyP')){GS='paused';pauseI=0;pauseHow=false;for(const k in keys)keys[k]=false;return;}
   if(GS==='paused'){ // UI-AUDIT 1110: the pause menu (ESC / P / START). The sim does not tick while paused.
     if(pauseHow){if(code==='Enter'||code==='Space'||code==='Escape')pauseHow=false;return;}
@@ -663,6 +663,7 @@ function pollPads(){
 function loop(now){requestAnimationFrame(loop);blink=(blink+1)%60;
   pollPads();
   if(GS==='boot'&&++bootT>170)GS='title';
+  if(GS==='win'||GS==='gameover')endT++;else endT=0;
   if(GS==='title'&&!DEMO&&ATTRACT_F>0&&++idleT>ATTRACT_F)startDemo();   // ?attract=0 = off
   if(DEMO&&(++demoT>40*60||GS!=='play'))endDemo();
   if(GS==='play'){

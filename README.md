@@ -2,62 +2,57 @@
 
 **Play it in your browser: <https://anderspartnersck.github.io/FOG-FIRE/>**
 
-**3D edition: <https://anderspartnersck.github.io/FOG-FIRE/3d.html>** — the same game with 3D-rendered suits,
-the Lunar Crawler and layered 3D theaters. Press **3** in a fight to cycle the looks (3D, earlier 3D suits, original).
+A 1v1 mech fighting game on a 2D plane. Best of three rounds, with chains, target combos, launchers, motion
+specials and one super per suit. Every suit is its own 3D-rendered model, and the fight itself plays flat, the
+way Gundam Battle Assault and Street Fighter do.
 
-A mech action game for one player, or two in co-op. One hive, and a cult that runs the solar system.
-
-**Status:** an early build. It plays start to finish, but there is no sprite art yet: every mech, starfield
-and explosion is placeholder geometry, and the balance is first-pass.
-
-## About
-
-2D side-view mech combat: big readable suits, health bars, melee and charging specials, pilots over machines.
-Pick a pilot, deploy from the Lunar Crawler, and fight the cult across seven theaters, from the Luna Dome out
-to Phobos and Ishtar.
+**Status:** a working build, not finished. Every suit is fully playable. The fighter-specific drawings (crouch,
+air attacks, throws, a separate drawing for each special) are still to come, and the balance is first-pass.
 
 > *See it with your own two eyes — the hive says obey.*
 
-## How to play
-
-**ENTER** or **SPACE** on the title goes to pilot select. Leave the title alone and a CPU demo plays.
-
-**Pilot select**
+## Modes
 
 | | |
 |---|---|
-| Arrow keys | choose your pilot |
-| **C** (or TAB) | co-op on/off, adds a wingman |
-| **A / D** | choose the wingman's pilot |
-| **X** | difficulty: NORMAL, HARD, HARDEST |
-| **V** | mode: CAMPAIGN or SEEK & DESTROY (endless waves) |
-| **ENTER** | deploy |
+| **ARCADE** | 8 duels: exhibition bouts at Pod 19, New Qom and the Underhive, then the four Great Ones of THE EXIT, then Kyle in MORNING STAR at Ishtar |
+| **VERSUS CPU** | pick both suits and the stage; CPU EASY / NORMAL / HARD / HARDEST (◄ ► on the menu) |
+| **VERSUS 2P** | one keyboard, or two gamepads |
+| **TRAINING** | the dummy never dies; hitbox view (**TAB**), frame data, input history, dummy stand / crouch / jump / block / CPU, **R** resets |
+| **MOVE LIST** | every suit's inputs, damage and startup (also on the pause menu) |
+| **SQUAD WAVES** | bonus: the original co-op wave game (`waves.html`) |
 
-**In the fight (player 1)**
+## Controls
 
-| | |
-|---|---|
-| ◄ ► | move |
-| ▲ | jump |
-| ▼ | block |
-| **A** | jab |
-| **S** | heavy |
-| **D** | your suit's special, once the meter is full |
-| **ESC** or **P** | pause (resume, how to play, back to pilot select, quit to title) |
+| | Player 1 | Player 2 |
+|---|---|---|
+| move / jump / crouch | **W A S D** | arrow keys |
+| light / medium / heavy | **J K L** | numpad **1 2 3** (or **, . /**) |
+| special | **I** | numpad **0** (or **'**) |
+| throw | **U** (or L+M) | — (L+M) |
+| super | **O** (or S+H) | — (S+H) |
+| pause | **ESC** or **P** | |
 
-A downed pilot is revived by a squadmate standing close by.
+Playing alone you can also use the arrow keys with **Z X C** (light / medium / heavy) and **V** (special).
 
-**Co-op.** The wingman is flown by the CPU unless a second gamepad is plugged in. With two pads connected,
-player 2 takes over the wingman (pad 2, or **T F G H** to move/jump/block and **J K L** to attack on the
-keyboard).
+**Gamepads:** stick or D-pad moves; X / Y / B = light / medium / heavy, A = special, LB = throw, triggers = super,
+START = pause.
 
-**Gamepads.** Stick or D-pad moves, A jab, X heavy, B special, START pause. In menus A or START confirms,
-B goes back, SELECT toggles co-op, Y changes difficulty.
+## The system
 
-Four more pilots are locked at the start. Clearing the campaign opens three of them; clearing it on HARDEST
-opens the last. Those unlocks are the only thing the game saves in your browser.
+- **Chains:** light → medium → heavy, on hit or block.
+- **Target combos:** a direction + button during a named normal. Each suit's are in the move list.
+- **Launcher:** ↓ + heavy. Press ↑ on hit to super jump after them, then air chain; air heavy spikes them down.
+- **Sweep:** ↘ + heavy (low, knockdown).
+- **Specials:** ↓↘→, ↓↙←, →↓↘, [←]→ charge or [↓]↑ charge + a button. Or, on a keyboard, the special button with
+  a direction (→ / ← / ↓ / ↑ / none) gives the same move.
+- **Super:** ↓↘→↓↘→ + any button, or special + heavy, with a full meter. Meter builds when you hit, block and get hit.
+- **Defence:** hold away to block, down-away to block lows. Overheads must be blocked standing. Throw with L+M;
+  press L+M as you're grabbed to tech.
 
-**Options** (add to the link): `?attract=0` turns off the title demo.
+Five suits unlock after an ARCADE clear. That is the only thing the game saves in your browser.
+
+**Options** (add to the link): `?attract=0` turns off the title demo, `?noboot` skips the opening logo.
 
 ## Credits
 

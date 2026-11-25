@@ -26,13 +26,16 @@
 <div id="wrap"><canvas id="c" width="960" height="540"></canvas></div>
 <script src="lib/ckboot.js?v=1"></script>
 <script src="lib/ghost.js?v=1"></script>
-<script src="lib/fight.js?v=1"></script>
+<script>/* ?classic = the pre-1117 duel (frozen engine, fixed camera, old kits) until Joe signs off on the redesign */
+document.write('<script src="lib/'+(/[?&]classic\b/.test(location.search)?'fight-classic':'fight')+'.js?v=2"><\/script>');</script>
 <script src="lib/fafatlas.js?v=1"></script>
 <script>
 'use strict';
 /* ============================ CORE ============================ */
 const C=document.getElementById('c'),X=C.getContext('2d');
 const W=960,H=540,F=FAFFight,GROUND=F.GROUND;
+const CLASSIC=!F.isGiant;   // the frozen pre-1117 engine: shim the scale helpers the renderer asks for
+if(CLASSIC){F.isGiant=()=>false;F.heightOf=f=>f.c.hurt[1]*(f.bigT>0?2:1);F.benchNext=()=>-1;}
 function fit(){const s=Math.min(innerWidth/W,innerHeight/H);C.style.width=((W*s)|0)+'px';C.style.height=((H*s)|0)+'px';}
 addEventListener('resize',fit);fit();
 const QS=new URLSearchParams(location.search||'');
@@ -48,39 +51,54 @@ function img(rel){let im=IMGS[rel];if(im)return im;im=IMGS[rel]=new Image();im._
   const next=()=>{if(i>=BASES.length){im._bad=true;return;}const b=BASES[i++];im.src=b[0]+rel+'.'+b[1];};
   im.onload=()=>{im._ok=true;};im.onerror=next;next();return im;}
 const sheet=(sid,pass)=>img('atlas/'+sid+'_'+pass+'_1x');
-for(const sid in FAF_ATLAS){sheet(sid,'color');sheet(sid,'glow');}
+// 1117: the zoom camera draws the fighters from the 2x colour atlas, requested only for suits that are actually fighting
+const LITE=QS.has('lite')||(navigator.deviceMemory&&navigator.deviceMemory<4);
+const sheet2=sid=>(!LITE&&FAF_ATLAS[sid]&&FAF_ATLAS[sid].r2)?img('atlas/'+sid+'_color_2x'):null;
+// 1119: opt-in alternate atlases (ANGIE 1119 clip-fixed rebuild = ?angie=1119) load only when picked
+const ALT_SID={angie1119_bk:QS.get('angie')==='1119'};
+for(const sid in FAF_ATLAS){if(sid in ALT_SID&&!ALT_SID[sid])continue;sheet(sid,'color');sheet(sid,'glow');}
 const STAGE_INFO={
   pod19:{name:'POD 19',sub:'over the pod · Phaser on the deck',sky:['#1a0e1e','#3a1430'],acc:'#ff5bc8'},
-  newqom:{name:'NEW QOM',sub:'the Imamate’s holy city under the dome',sky:['#0a1428','#16305a'],acc:'#7fd0ff'},
+  newqom:{name:'NEW QOM',sub:'the spaceport outside the Imamate’s dome',sky:['#0a1428','#16305a'],acc:'#7fd0ff'},
   underhive:{name:'MARS UNDERHIVE',sub:'blue-collar depths',sky:['#0a0610','#1a0a1c'],acc:'#ff5bc8'},
   crawler:{name:'THE LUNAR CRAWLER',sub:'the squad’s mobile fortress',sky:['#05070d','#141a2a'],acc:'#9fb0bd'},
   ishtar:{name:'ISHTAR · VENUS',sub:'sulfur fog · the rebuild',sky:['#3a2e08','#6a5410'],acc:'#ffd24a'}};
-const plate=(t,L)=>img('env_bk/'+t+'/1x/'+L);
+// 1119: NEW QOM = the 1118 Atmodome + Air Command hangar plates (env_bk/newqom1118) by default; ?qom=1117 = the old in-the-wall plates
+const PLATE_DIR={newqom:QS.get('qom')==='1117'?'newqom':'newqom1118'};
+const plate=(t,L)=>img('env_bk/'+(PLATE_DIR[t]||t)+'/1x/'+L);
 for(const t in STAGE_INFO)for(const L of ['far','mid','near'])plate(t,L);
 
 // suit -> atlas + render tint. The Great Ones ride a squad model in their own colours until they get Blender builds.
 const LOOK={sandtrap:{sid:'sandtrap_bk'},backdraft:{sid:'backdraft_bk'},holyroller:{sid:'holyroller_bk'},foxeylady:{sid:'foxeylady_bk'},
-  poison:{sid:'poison_bk'},solitaire:{sid:'solitaire_bk'},namor:{sid:'namor_bk'},angie:{sid:'angie_bk'},morningstar:{sid:'morningstar'},
+  poison:{sid:'poison_bk'},solitaire:{sid:'solitaire_bk'},namor:{sid:'namor_bk'},angie:{sid:(ALT_SID.angie1119_bk&&FAF_ATLAS.angie1119_bk)?'angie1119_bk':'angie_bk'},morningstar:{sid:'morningstar'},
   deadletter:{sid:'solitaire_bk',tint:{col:'#5fd8ff',a:0.55,lift:0.18}},widow:{sid:'angie_bk',tint:{col:'#d8f0c0',a:0.8,lift:0.12}},
   undertow:{sid:'namor_bk',tint:{col:'#14c4b0',a:0.75}},anvil:{sid:'foxeylady_bk',tint:{col:'#c08a22',a:0.75}}};
-const tmp=document.createElement('canvas'),tg=tmp.getContext('2d');
+const tmp=document.createElement('canvas'),tg=tmp.getContext('2d');const TINTC=new Map();
 function sk(id){const L=LOOK[id]||LOOK.sandtrap,A=FAF_ATLAS[L.sid],c=F.CHARS[id];return A&&c?c.hurt[1]*1.12/A.vh:1;}
 function drawCell(id,name,x,y,face,k,o){
   o=o||{};const L=LOOK[id]||LOOK.sandtrap,sid=L.sid,A=FAF_ATLAS[sid];if(!A)return false;k*=sk(id);
   const fr=A.frames[name]||A.frames[name.replace(/_d[12]_/,'_')]||A.frames[name.replace(/_\d+$/,'_0')]||A.frames.idle_0;
-  const im=sheet(sid,'color');if(!im._ok)return false;
-  const cw=A.cell[0],ch=A.cell[1],ax=A.anchor[0],ay=A.anchor[1],sx=fr[0]*cw,sy=fr[1]*ch;
+  let im=sheet(sid,'color');if(!im._ok)return false;
+  let cw=A.cell[0],ch=A.cell[1],ax=A.anchor[0],ay=A.anchor[1],sx=fr[0]*cw,sy=fr[1]*ch,k1=k;
+  const g2=o.hi?sheet2(sid):null;
+  if(g2&&g2._ok){im=g2;cw=A.r2.cell[0];ch=A.r2.cell[1];ax=A.r2.anchor[0];ay=A.r2.anchor[1];sx=fr[0]*cw;sy=fr[1]*ch;k=k/2;}
   X.save();X.translate(x,y);X.scale(face,1);if(o.rot)X.rotate(o.rot);X.scale(k,k*(o.sy||1));if(o.alpha!=null)X.globalAlpha=o.alpha;
   X.imageSmoothingEnabled=true;
   const tint=L.tint,flash=o.flash||0;
-  if(tint||flash){tmp.width=cw;tmp.height=ch;tg.drawImage(im,sx,sy,cw,ch,0,0,cw,ch);
+  // PERF 1117 (HIGH TABLE docs/PERF-3D-RULES.md 5+6): a tinted look re-composed every cell every frame (resize tmp + 3-4
+  // composite passes). A tinted, unflashed cell is now baked once per (look, sheet, frame) and blitted. Render-only.
+  const tk=(tint&&!flash)?id+'|'+(im===g2?'h':'c')+'|'+sx+','+sy+','+cw+','+ch:null,tc=tk&&TINTC.get(tk);
+  if(tc)X.drawImage(tc,-ax,-ay);
+  else if(tint||flash){if(tmp.width!==cw||tmp.height!==ch){tmp.width=cw;tmp.height=ch;}else{tg.globalCompositeOperation='source-over';tg.globalAlpha=1;tg.clearRect(0,0,cw,ch);}tg.drawImage(im,sx,sy,cw,ch,0,0,cw,ch);
     if(tint){tg.globalCompositeOperation='color';tg.globalAlpha=tint.a;tg.fillStyle=tint.col;tg.fillRect(0,0,cw,ch);
       if(tint.lift){tg.globalCompositeOperation='lighter';tg.globalAlpha=tint.lift;tg.fillRect(0,0,cw,ch);}}
     if(flash){tg.globalCompositeOperation='lighter';tg.globalAlpha=flash;tg.fillStyle=o.flashCol||'#fff';tg.fillRect(0,0,cw,ch);}
     tg.globalAlpha=1;tg.globalCompositeOperation='destination-in';tg.drawImage(im,sx,sy,cw,ch,0,0,cw,ch);tg.globalCompositeOperation='source-over';
+    if(tk){if(TINTC.size>48)TINTC.clear();const c=document.createElement('canvas');c.width=cw;c.height=ch;c.getContext('2d').drawImage(tmp,0,0);TINTC.set(tk,c);}
     X.drawImage(tmp,-ax,-ay);}
   else X.drawImage(im,sx,sy,cw,ch,-ax,-ay,cw,ch);
-  const g=sheet(sid,'glow');if(g._ok&&o.glow!==false){X.globalCompositeOperation='lighter';X.globalAlpha=(o.alpha!=null?o.alpha:1)*0.85;X.drawImage(g,sx,sy,cw,ch,-ax,-ay,cw,ch);}
+  const g=sheet(sid,'glow');if(g._ok&&o.glow!==false){if(k!==k1){X.scale(k1/k,k1/k);cw=A.cell[0];ch=A.cell[1];ax=A.anchor[0];ay=A.anchor[1];sx=fr[0]*cw;sy=fr[1]*ch;}
+    X.globalCompositeOperation='lighter';X.globalAlpha=(o.alpha!=null?o.alpha:1)*0.85;X.drawImage(g,sx,sy,cw,ch,-ax,-ay,cw,ch);}
   X.restore();return true;}
 
 /* ============================ AUDIO (tiny synth; CK BOOT: the first press on a blocked page only wakes it) ============================ */
@@ -108,16 +126,17 @@ addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
 // P1 = WASD + J K L (light medium heavy) + I (special) · U = throw (L+M) · O = super (S+H)
 // P2 = ARROWS + Numpad 1 2 3 + Numpad 0 (alt , . / and ') · Numpad 4 throw · Numpad 6 super
 // SOLO (P2 is the CPU): P1 may also use ARROWS + Z X C (L M H) + V (special) · B throw · N super
-const KB=[{l:['KeyA'],r:['KeyD'],u:['KeyW'],d:['KeyS'],L:['KeyJ'],M:['KeyK'],H:['KeyL'],S:['KeyI'],T:['KeyU'],SU:['KeyO']},
-  {l:['ArrowLeft'],r:['ArrowRight'],u:['ArrowUp'],d:['ArrowDown'],L:['Numpad1','Comma'],M:['Numpad2','Period'],H:['Numpad3','Slash'],S:['Numpad0','Quote'],T:['Numpad4'],SU:['Numpad6']}];
-const SOLO={l:['ArrowLeft'],r:['ArrowRight'],u:['ArrowUp'],d:['ArrowDown'],L:['KeyZ'],M:['KeyX'],H:['KeyC'],S:['KeyV'],T:['KeyB'],SU:['KeyN']};
+// TEAMS (1117): TAG = P1 Y · P2 Numpad 7 · solo M · pad RB      ASSIST = P1 H · P2 Numpad 8 · solo G · pad LT
+const KB=[{l:['KeyA'],r:['KeyD'],u:['KeyW'],d:['KeyS'],L:['KeyJ'],M:['KeyK'],H:['KeyL'],S:['KeyI'],T:['KeyU'],SU:['KeyO'],G:['KeyY'],A:['KeyH']},
+  {l:['ArrowLeft'],r:['ArrowRight'],u:['ArrowUp'],d:['ArrowDown'],L:['Numpad1','Comma'],M:['Numpad2','Period'],H:['Numpad3','Slash'],S:['Numpad0','Quote'],T:['Numpad4'],SU:['Numpad6'],G:['Numpad7'],A:['Numpad8']}];
+const SOLO={l:['ArrowLeft'],r:['ArrowRight'],u:['ArrowUp'],d:['ArrowDown'],L:['KeyZ'],M:['KeyX'],H:['KeyC'],S:['KeyV'],T:['KeyB'],SU:['KeyN'],G:['KeyM'],A:['KeyG']};
 function readMap(m,o){for(const k in m)if(m[k].some(c=>keys[c]))o[k]=true;return o;}
 const PADS=[{},{}];
 function padRead(i){let gp=null;try{const ps=navigator.getGamepads?navigator.getGamepads():[];let n=0;for(const p of ps){if(p){if(n===i){gp=p;break;}n++;}}}catch(e){}
   const o={};if(!gp)return o;const G=Ghost.read(gp),b=k=>Ghost.btn(gp,k);
   if(G.ax<-0.5)o.l=true;if(G.ax>0.5)o.r=true;if(G.ay<-0.5)o.u=true;if(G.ay>0.5)o.d=true;
-  if(b(2))o.L=true;if(b(3))o.M=true;if(b(1)||b(5))o.H=true;if(b(0))o.S=true;if(b(4))o.T=true;if(b(6)||b(7))o.SU=true;if(b(9))o.START=true;o.present=true;return o;}
-function sideInput(s,solo){const o={};readMap(KB[s],o);if(solo&&s===0)readMap(SOLO,o);const p=padRead(s);for(const k in p)if(p[k])o[k]=true;
+  if(b(2))o.L=true;if(b(3))o.M=true;if(b(1))o.H=true;if(b(0))o.S=true;if(b(4))o.T=true;if(b(7))o.SU=true;if(b(5))o.G=true;if(b(6))o.A=true;if(b(9))o.START=true;o.present=true;return o;}
+function sideInput(s,solo){const o={};readMap(KB[s],o);if(solo&&s===0)readMap(SOLO,o);if(s===0&&TOUCH.on)for(const k in TOUCH.o)if(TOUCH.o[k])o[k]=true;const p=padRead(s);for(const k in p)if(p[k])o[k]=true;
   if(o.T){o.L=true;o.M=true;}if(o.SU){o.S=true;o.H=true;}return o;}
 // pads drive the menus too (edge-triggered into menuKey)
 const padPrev=[{},{}];
@@ -137,7 +156,7 @@ const locked=id=>!!F.CHARS[id].lock&&!SAVE.clear;
 let GS=QS.has('noboot')?'title':'boot',bootT=0,idleT=0,endT=0,paused=false,pauseI=0,pauseSub='';
 const ATTRACT_F=(QS.has('attract')&&QS.get('attract')!==''?+QS.get('attract'):25)*60; // ?attract=0 turns the title demo off
 const DIFFS=['EASY','NORMAL','HARD','HARDEST'];let diff=+(QS.get('cpu')||1);
-const MENU=['ARCADE','VERSUS CPU','VERSUS 2P','TRAINING','MOVE LIST','SQUAD WAVES (BONUS)','HOW TO PLAY'];let menuI=0;
+const MENU=CLASSIC?['ARCADE','VERSUS CPU','VERSUS 2P','TRAINING','MOVE LIST','SQUAD WAVES (BONUS)','HOW TO PLAY']:['ARCADE','VERSUS CPU','VERSUS 2P','TRAINING','TAG 2 v 2','TAG 3 v 3','BOSS RAID — MORNINGSTAR','MOVE LIST','SQUAD WAVES (BONUS)','HOW TO PLAY'];let menuI=0;
 let mode='versus',sel=null,stageSel=0,M=null,cfg=null,ARC=null,DEMO=false,demoT=0,resultI=0;
 let mlId='sandtrap',mlScroll=0,howFrom='menu',mlFrom='menu';
 const TR={hit:QS.has('hitbox'),dummy:'stand',inf:true,fd:true,hist:[],lastIn:'',last:null};
@@ -148,14 +167,16 @@ if(window.CKBoot&&GS==='boot')CKBoot.hold(Infinity);
 function toTitle(){GS='title';idleT=0;DEMO=false;paused=false;}
 function startDemo(){const pool=F.ROSTER.slice(0,8),r=Math.random;const a=pool[(r()*8)|0];let b=pool[(r()*8)|0];if(b===a)b=pool[(pool.indexOf(a)+3)%8];
   DEMO=true;demoT=0;startFight({mode:'demo',p1:a,p2:b,stage:F.STAGES[(r()*5)|0],cpu:[true,true],lvl:[2,2],seed:(r()*1e6)|0});}
-function startFight(c){cfg=c;M=F.match({p1:c.p1,p2:c.p2,seed:c.seed||((Math.random()*1e9)|0),training:c.mode==='training',infMeter:c.mode==='training'&&TR.inf});
-  GS='fight';paused=false;endT=0;FX.length=0;BAN.length=0;shake=0;R0.clear&&R0.clear();RM.length=0;TR.hist.length=0;TR.last=null;
+function startFight(c){cfg=c;M=F.match({p1:c.p1,p2:c.p2,team1:c.team1,team2:c.team2,seed:c.seed||((Math.random()*1e9)|0),training:c.mode==='training',infMeter:c.mode==='training'&&TR.inf});
+  GS='fight';paused=false;endT=0;FX.length=0;CAM.snap=true;BAN.length=0;shake=0;R0.clear&&R0.clear();RM.length=0;TR.hist.length=0;TR.last=null;
   if(c.mode==='training')resetTraining();}
 function resetTraining(){const E=M.E;E.f[0].x=W/2-120;E.f[1].x=W/2+120;for(const f of E.f){f.y=GROUND;f.vx=f.vy=0;f.hp=f.maxhp;f.move=null;f.mkey='';f.state='stand';f.hitstun=f.blockstun=f.kd=0;f.airHit=false;f.juggle=0;f.juggleFull=false;f.bigT=0;}E.projs.length=0;E.zones.length=0;E.f[0].face=1;E.f[1].face=-1;}
-function newSel(m){mode=m;sel={step:0,cur:[0,1],pick:[null,null],ready:[false,false],stage:-1,who:0};
+function newSel(m,size){mode=m;sel={step:0,cur:[0,1],pick:[null,null],ready:[false,false],stage:-1,who:0,size:size||0,team:[[],[]]};
+  if(m==='raid')sel.team[1]=['morningstar'];
   if(m==='versus2p')sel.cur=[0,1];GS='select';}
 function beginFromSelect(){const st=sel.stage<0?F.STAGES[(Math.random()*5)|0]:F.STAGES[sel.stage];
   if(mode==='arcade'){startArcade(sel.pick[0]);return;}
+  if(sel.size){startFight({mode:mode,team1:sel.team[0],team2:sel.team[1],stage:st,cpu:[false,true],lvl:[diff,diff]});return;}
   startFight({mode:mode==='training'?'training':'versus',p1:sel.pick[0],p2:sel.pick[1],stage:st,cpu:[false,mode==='versus'],lvl:[diff,diff],two:mode==='versus2p'});}
 function startArcade(suit){const pool=F.ROSTER.slice(0,8).filter(x=>x!==suit);let s=(Math.random()*1e9)|0;
   const R=()=>(s=(Math.imul(s,1664525)+1013904223)>>>0)/4294967296;for(let i=pool.length-1;i>0;i--){const j=(R()*(i+1))|0;[pool[i],pool[j]]=[pool[j],pool[i]];}
@@ -178,11 +199,11 @@ function menuKey(code,pad){
   if(GS==='menu'){
     if(isUp(code)){menuI=(menuI+MENU.length-1)%MENU.length;SFX.ui();}
     else if(isDn(code)){menuI=(menuI+1)%MENU.length;SFX.ui();}
-    else if(isL(code)&&menuI<3){diff=(diff+3)%4;SFX.ui();}else if(isR(code)&&menuI<3){diff=(diff+1)%4;SFX.ui();}
+    else if(isL(code)&&MENU[menuI]&&!/MOVE|SQUAD|HOW/.test(MENU[menuI])){diff=(diff+3)%4;SFX.ui();}else if(isR(code)&&MENU[menuI]&&!/MOVE|SQUAD|HOW/.test(MENU[menuI])){diff=(diff+1)%4;SFX.ui();}
     else if(isBack(code))toTitle();
     else if(isOk(code)){SFX.ok();const it=MENU[menuI];
       if(it==='ARCADE')newSel('arcade');else if(it==='VERSUS CPU')newSel('versus');else if(it==='VERSUS 2P')newSel('versus2p');
-      else if(it==='TRAINING')newSel('training');else if(it==='MOVE LIST'){mlFrom='menu';mlScroll=0;GS='movelist';}
+      else if(it==='TRAINING')newSel('training');else if(it==='TAG 2 v 2')newSel('tag',2);else if(it==='TAG 3 v 3')newSel('tag',3);else if(it.startsWith('BOSS RAID'))newSel('raid',3);else if(it==='MOVE LIST'){mlFrom='menu';mlScroll=0;GS='movelist';}
       else if(it==='HOW TO PLAY'){howFrom='menu';GS='howto';}
       else if(it.startsWith('SQUAD WAVES'))location.href='waves.html'+(QS.get('from')?'?from='+QS.get('from'):'');}
     return;}
@@ -222,6 +243,7 @@ const GRID_COLS=7;
 function selectKey(code){
   const ids=F.ROSTER,n=ids.length,two=mode==='versus2p';
   if(sel.step===2){                                            // the stage
+    if(sel.size&&isBack(code)){sel.step=0;sel.team[sel.who].pop();return;}
     if(isL(code)||code==='ArrowLeft'){sel.stage=sel.stage<=-1?4:sel.stage-1;SFX.ui();}
     else if(isR(code)||code==='ArrowRight'){sel.stage=sel.stage>=4?-1:sel.stage+1;SFX.ui();}
     else if(isOk(code)){SFX.ok();beginFromSelect();}
@@ -238,11 +260,14 @@ function selectKey(code){
   else if((two&&((who===0&&(code==='KeyJ'||code==='Space'))||(who===1&&(code==='Numpad1'||code==='Comma'||code==='Enter'))))||(!two&&isOk(code))){
     const id=ids[sel.cur[who]];if(locked(id)){SFX.block();return;}SFX.ok();
     if(two){sel.pick[who]=id;sel.ready[who]=true;if(sel.ready[0]&&sel.ready[1])sel.step=2;return;}
+    if(sel.size){const T=sel.team[sel.who];if(T.includes(id)){SFX.block();return;}T.push(id);sel.pick[sel.who]=id;
+      if(T.length>=sel.size){if(sel.who===0&&mode!=='raid'){sel.who=1;sel.cur[1]=(sel.cur[0]+1)%8;}else sel.step=2;}return;}
     sel.pick[sel.who]=id;
     if(mode==='arcade'){beginFromSelect();return;}
     if(sel.who===0){sel.who=1;sel.cur[1]=(sel.cur[0]+1)%8;}else sel.step=2;}
   else if(isBack(code)){
     if(two){if(sel.ready[who]){sel.ready[who]=false;sel.pick[who]=null;}else GS='menu';return;}
+    if(sel.size){const T=sel.team[sel.who];if(T.length&&!(mode==='raid'&&sel.who===1))T.pop();else if(sel.who===1&&mode!=='raid'){sel.who=0;sel.team[0].pop();}else GS='menu';return;}
     if(sel.who===1){sel.who=0;sel.pick[0]=null;}else GS='menu';}
   else if(code==='KeyQ'||code==='KeyR'&&!two){/* random */let k=(Math.random()*8)|0;sel.cur[who]=k;SFX.ui();}
 }
@@ -297,28 +322,54 @@ function onEvents(ev){
       case 'clash':spark(e.x,e.y,'#fff',14,3,14);ring(e.x,e.y,'#fff',30);break;
       case 'round':banner('ROUND '+e.n,-1,'#cfd6e0',true,90);SFX.round();break;
       case 'fight':banner('FIGHT!',-1,'#ff5b6b',true,50);break;
+      case 'tag':banner('TAG — '+f.c.name,f.side,'#7fd0ff',false,60);SFX.special();break;
+      case 'next':banner(f.c.name+' — IN!',-1,f.c.color,true,70);break;
+      case 'assist':banner('ASSIST — '+e.name,f.side,f.c.color,false,50);break;
+      case 'weak':spark(e.x,e.y,'#ffd24a',10,3,16);ring(e.x,e.y,'#ffd24a',30);if(!rmem(f).wb||frame-rmem(f).wb>40){banner(e.part+'!',e.by.side,'#ffd24a',false,50);rmem(f).wb=frame;}break;
+      case 'break':banner('BROUGHT TO A KNEE',-1,'#ffd24a',true,110);shake=16;SFX.ko();spark(f.x,f.y-F.heightOf(f)*0.5,'#ffd24a',30,6,30);break;
+      case 'rise':banner('BACK UP',f.side,'#b14bff',false,40);break;
+      case 'climb':banner('CLIMB!',f.side,'#7fd0ff',false,60);SFX.special();break;
+      case 'shake':banner('SHAKEN OFF',e.by.side,'#b14bff',false,60);shake=8;SFX.throw();break;
+      case 'toobig':banner('TOO BIG TO THROW',f.side,'#9fb0bd',false,60);spark(e.x,e.y,'#9fb0bd',8,2,14);break;
+      case 'marked':banner('LASED',e.by.side,'#ff3b3b',false,60);break;
+      case 'waveburn':banner('WAVE BURN −'+e.n,f.side,'#b14bff',false,60);break;
     }}}
 function tickFX(){for(const p of FX){p.life--;if(p.ring){p.r+=(p.max-p.r)*0.3;continue;}p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.vx*=0.96;}
   for(let i=FX.length-1;i>=0;i--)if(FX[i].life<=0)FX.splice(i,1);for(const b of BAN)b.life--;for(let i=BAN.length-1;i>=0;i--)if(BAN[i].life<=0)BAN.splice(i,1);
   if(shake>0)shake*=0.82;if(shake<0.3)shake=0;if(flashW>0)flashW-=0.06;}
 function drawFX(){X.save();X.globalCompositeOperation='lighter';
-  for(const p of FX){const a=clamp(p.life/p.max,0,1);if(p.ring){X.strokeStyle=p.col;X.globalAlpha=a;X.lineWidth=3;X.beginPath();X.arc(p.x,p.y,p.r,0,7);X.stroke();continue;}
+  // PERF 1117 (HIGH TABLE docs/PERF-3D-RULES.md 2): draw at most the 90 newest sparks/rings (they all still spawn + age)
+  for(let i=Math.max(0,FX.length-90);i<FX.length;i++){const p=FX[i];const a=clamp(p.life/p.max,0,1);if(p.ring){X.strokeStyle=p.col;X.globalAlpha=a;X.lineWidth=3;X.beginPath();X.arc(p.x,p.y,p.r,0,7);X.stroke();continue;}
     X.globalAlpha=a;X.fillStyle=p.col;X.fillRect(p.x-p.sz/2,p.y-p.sz/2,p.sz,p.sz);}
   X.restore();}
 
 /* ============================ STAGE ============================ */
-function drawStage(t,E){const S=STAGE_INFO[t]||STAGE_INFO.pod19;
-  const g=X.createLinearGradient(0,0,0,GROUND);g.addColorStop(0,S.sky[0]);g.addColorStop(1,S.sky[1]);X.fillStyle=g;X.fillRect(0,0,W,H);
-  const cx=E?(E.f[0].x+E.f[1].x)/2-W/2:0;let any=false;
-  for(const [L,k] of [['far',0.03],['mid',0.07],['near',0.12]]){const im=plate(t,L);if(im._ok){any=true;X.imageSmoothingEnabled=true;X.drawImage(im,-48-cx*k,0,1056,540);}}
-  if(!any){X.fillStyle='#0b0e16';X.fillRect(0,GROUND,W,H-GROUND);X.strokeStyle=S.acc;X.globalAlpha=0.4;X.beginPath();X.moveTo(0,GROUND);X.lineTo(W,GROUND);X.stroke();X.globalAlpha=1;}
+/* ---- THE CAMERA (1117, render-only): zooms to frame both full bodies; a giant pulls it out, two exos pull it in.
+   docs/LORE-FIGHTER-1117.md §1d. ?cam=0 = the old fixed 1:1 view. ---- */
+const CAM={z:1,x0:0,y0:0,on:QS.get('cam')!=='0'&&!CLASSIC,snap:true};const CAM0={z:1,x0:0,y0:0};
+function camTarget(E){if(!CAM.on||!E)return CAM0;let L=1e9,R=-1e9,T=1e9;
+  for(const f of E.f){const k=f.bigT>0?2:1,hw=f.c.hurt[0]*k,h=F.heightOf(f);L=Math.min(L,f.x-hw-60);R=Math.max(R,f.x+hw+60);T=Math.min(T,f.y-h-46);}
+  const B=GROUND+34,spanX=Math.max(R-L,330),spanY=B-T;let z=clamp(Math.min(W/spanX,(H-66)/spanY),0.92,1.9);
+  if(E.freeze>0)z*=1.06;const vw=W/z;let x0=(L+R)/2-vw/2;x0=vw>=W?(W-vw)/2:clamp(x0,0,W-vw);return {z,x0,y0:B-H/z};}
+function camStep(E){const t=camTarget(E);if(CAM.snap){Object.assign(CAM,t);CAM.snap=false;return;}const e=0.085;CAM.z+=(t.z-CAM.z)*e;CAM.x0+=(t.x0-CAM.x0)*e;CAM.y0+=(t.y0-CAM.y0)*e;
+  const vw=W/CAM.z;CAM.x0=vw>=W?(W-vw)/2:clamp(CAM.x0,0,W-vw);CAM.y0=Math.min(CAM.y0,GROUND+34-H/CAM.z);}
+function camApply(c,pf){const z=1+(c.z-1)*pf,x0=c.x0*pf,y0=c.y0*pf;X.scale(z,z);X.translate(-x0,-y0);}
+function drawStage(t,E,cam){const S=STAGE_INFO[t]||STAGE_INFO.pod19;cam=cam||CAM0;
+  const g=X.createLinearGradient(0,0,0,H);g.addColorStop(0,S.sky[0]);g.addColorStop(1,S.sky[1]);X.fillStyle=g;X.fillRect(0,0,W,H);
+  let any=false;
+  for(const [L,pf] of [['far',0.35],['mid',0.65],['near',1]]){const im=plate(t,L);if(im._ok){any=true;X.save();camApply(cam,pf);X.imageSmoothingEnabled=true;X.drawImage(im,-48,0,1056,540);X.restore();}}
+  X.save();camApply(cam,1);
+  if(!any){X.fillStyle='#0b0e16';X.fillRect(-200,GROUND,W+400,H);X.strokeStyle=S.acc;X.globalAlpha=0.4;X.beginPath();X.moveTo(-200,GROUND);X.lineTo(W+200,GROUND);X.stroke();X.globalAlpha=1;}
   // fog of the theater (render-only)
-  const fg=X.createLinearGradient(0,GROUND-140,0,H);fg.addColorStop(0,'rgba(5,7,13,0)');fg.addColorStop(1,'rgba(5,7,13,.45)');X.fillStyle=fg;X.fillRect(0,GROUND-140,W,H);}
+  const fg=X.createLinearGradient(0,GROUND-140,0,GROUND+80);fg.addColorStop(0,'rgba(5,7,13,0)');fg.addColorStop(1,'rgba(5,7,13,.45)');X.fillStyle=fg;X.fillRect(-300,GROUND-140,W+600,400);
+  X.restore();}
 
 /* ============================ SUITS (pose = render-only read of the sim) ============================ */
 function poseOf(f){
   const m=f.move,st=f.state,r=rmem(f);let act='idle',i=((f.animT/8)|0)%4,rot=0,sy=1,dy=0,dmg=true,hide=false;
   if(st==='ko'){if(f.y<GROUND-2){act='hit';i=1;rot=clamp(f.vy*0.03,-0.6,0.6)*-1;}else{r.koT++;act='destroyed';i=Math.min(9,(r.koT/6)|0);dmg=false;}}
+  else if(f.brk>0&&!m){act=f.hitstun>0?'hit':'block';i=0;sy=0.62;rot=0.06;}                   // BROUGHT TO A KNEE (SC172)
+  else if(f.mountT>0){act='air';i=1;rot=-0.35;}
   else if(m){
     const s0=m.su+(m.travel||0),ph=f.sf<=s0?0:f.sf<=s0+m.ac?1:2,pr=ph===0?f.sf/Math.max(1,s0):ph===1?(f.sf-s0)/Math.max(1,m.ac):(f.sf-s0-m.ac)/Math.max(1,m.rc),k=f.mkey;
     if(m.isSpecial||m.isSuper){act='spec';i=ph===0?Math.min(3,(pr*4)|0):ph===1?4+Math.min(1,(pr*2)|0):6;dmg=false;
@@ -341,13 +392,16 @@ function drawSuit(f,E){
   const r=rmem(f),p=poseOf(f),k=(f.bigT>0?2:1);
   if(r.boostT>0)r.boostT--;if(r.flash>0)r.flash-=0.12;
   // shadow
-  X.save();X.fillStyle='rgba(0,0,0,.45)';X.beginPath();X.ellipse(f.x,GROUND+3,f.c.hurt[0]*1.3*(f.bigT>0?2:1)*clamp(1-(GROUND-f.y)/400,0.3,1),7,0,0,7);X.fill();X.restore();
+  if(f.mountT<=0){X.save();X.fillStyle='rgba(0,0,0,.45)';X.beginPath();X.ellipse(f.x,GROUND+3,f.c.hurt[0]*1.3*(f.bigT>0?2:1)*clamp(1-(GROUND-f.y)/(400*Math.max(1,f.c.size)),0.3,1),7*Math.max(1,f.c.size*0.8),0,0,7);X.fill();X.restore();}
   if(p.hide){spark(f.x+(Math.random()-0.5)*40,GROUND-4,'#c2954f',2,2,14);return;}
   const superGlow=E.freeze>0&&E.freezeBy===f.side;
   let flash=Math.max(0,r.flash);if(superGlow)flash=Math.max(flash,0.35+0.25*Math.sin(frame*0.6));
   if(f.c.rage&&f.rage)flash=Math.max(flash,0.15+0.1*Math.sin(frame*0.3));
   const inv=f.inv>0&&f.state!=='kd'&&!f.move?0.75:1;
-  const ok=drawCell(f.id,p.name,f.x,f.y+p.dy,f.face,k,{rot:p.rot,sy:p.sy,flash,flashCol:superGlow?'#ffd24a':f.c.rage&&f.rage?'#ff5a1a':'#fff',alpha:inv});
+  const cloak=f.cloakT>0?0.18+0.1*Math.sin(frame*0.5):1;
+  const ok=drawCell(f.id,p.name,f.x,f.y+p.dy,f.face,k,{rot:p.rot,sy:p.sy,flash,flashCol:superGlow?'#ffd24a':f.c.rage&&f.rage?'#ff5a1a':f.brk>0?'#ffd24a':'#fff',alpha:inv*cloak,hi:true});
+  if(F.isGiant(f)&&f.orbLit){X.save();X.globalCompositeOperation='lighter';const oy=f.y-F.heightOf(f)*0.71,ox=f.x+f.face*f.c.hurt[0]*0.45;const gg=X.createRadialGradient(ox,oy,2,ox,oy,60);gg.addColorStop(0,'rgba(240,200,255,.95)');gg.addColorStop(1,'rgba(177,75,255,0)');X.fillStyle=gg;X.beginPath();X.arc(ox,oy,60,0,7);X.fill();X.restore();}
+  if(f.mark>0){X.save();X.strokeStyle='#ff3b3b';X.lineWidth=2;const my=f.y-F.heightOf(f)*0.6,rr=14+4*Math.sin(frame*0.3);X.beginPath();X.arc(f.x,my,rr,0,7);X.moveTo(f.x-rr-8,my);X.lineTo(f.x+rr+8,my);X.moveTo(f.x,my-rr-8);X.lineTo(f.x,my+rr+8);X.stroke();X.restore();}
   if(!ok)drawFallback(f,k,p);
   if(f.bigT>0&&f.bigT<120&&(frame>>2)%2)drawCell(f.id,p.name,f.x,f.y,f.face,1,{alpha:0.35});}
 function drawFallback(f,k,p){                                       // atlases still decoding: a flat silhouette in the suit colour
@@ -358,6 +412,7 @@ function drawFallback(f,k,p){                                       // atlases s
 /* ---- projectiles + zones (render-only drawings of sim objects) ---- */
 function drawProjs(E){X.save();X.globalCompositeOperation='lighter';
   for(const p of E.projs){const col=p.col||'#fff',o=p.owner;
+    if(p.beam&&p.y0!=null&&Math.abs(p.y0-p.y)>20){const x0=o.x+o.face*60*o.c.size;X.globalAlpha=0.6+0.3*Math.sin(frame*0.9);X.strokeStyle=col;X.lineWidth=p.h*0.6;X.beginPath();X.moveTo(x0,p.y0);X.lineTo(p.x,p.y);X.stroke();X.globalAlpha=0.95;X.strokeStyle='#fff';X.lineWidth=6;X.beginPath();X.moveTo(x0,p.y0);X.lineTo(p.x,p.y);X.stroke();continue;}
     if(p.beam){const x0=o.x+o.face*60*o.c.size,len=p.x-x0;const g=X.createLinearGradient(0,p.y-p.h/2,0,p.y+p.h/2);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(0.5,col);g.addColorStop(1,'rgba(0,0,0,0)');
       X.globalAlpha=0.55+0.3*Math.sin(frame*0.9);X.fillStyle=g;X.fillRect(Math.min(x0,x0+len),p.y-p.h/2,Math.abs(len)+p.w/2,p.h);X.globalAlpha=0.9;X.fillStyle='#fff';X.fillRect(Math.min(x0,x0+len),p.y-4,Math.abs(len)+p.w/2,8);continue;}
     const rr=Math.max(p.w,p.h)/2;
@@ -377,7 +432,8 @@ function drawZones(E){X.save();X.globalCompositeOperation='lighter';
 function drawBoxes(E){X.save();X.lineWidth=1.5;
   for(const f of E.f){const hb=F.hurtbox(f);X.strokeStyle=f.inv>0?'rgba(255,255,255,.6)':'rgba(80,200,255,.9)';X.fillStyle='rgba(80,200,255,.12)';X.fillRect(hb.x0,hb.y0,hb.x1-hb.x0,hb.y1-hb.y0);X.strokeRect(hb.x0,hb.y0,hb.x1-hb.x0,hb.y1-hb.y0);
     const m=f.move;if(m&&m.box){const b=F.hitbox(f),s0=m.su+(m.travel||0),act=f.sf>s0&&f.sf<=s0+m.ac;if(b){X.strokeStyle=m.grab?'rgba(255,220,60,.95)':act?'rgba(255,60,60,.95)':'rgba(255,60,60,.3)';X.fillStyle=act?(m.grab?'rgba(255,220,60,.25)':'rgba(255,60,60,.25)'):'rgba(0,0,0,0)';X.fillRect(b.x0,b.y0,b.x1-b.x0,b.y1-b.y0);X.strokeRect(b.x0,b.y0,b.x1-b.x0,b.y1-b.y0);}}
-    X.fillStyle='#fff';X.fillRect(f.x-1,f.y-6,2,6);}
+    X.fillStyle='#fff';X.fillRect(f.x-1,f.y-6,2,6);
+    if(F.isGiant(f)&&f.c.weak){const hw=f.c.hurt[0]*(f.bigT>0?2:1),Hh=F.heightOf(f);for(const w of f.c.weak){const xa=f.x+f.face*w.x[0]*hw,xb=f.x+f.face*w.x[1]*hw;X.strokeStyle=w.orb&&!f.orbLit?'rgba(255,210,74,.25)':'rgba(255,210,74,.95)';X.setLineDash([3,3]);X.strokeRect(Math.min(xa,xb),f.y-w.y[1]*Hh,Math.abs(xb-xa),(w.y[1]-w.y[0])*Hh);X.setLineDash([]);txt(w.part,Math.min(xa,xb)+2,f.y-w.y[1]*Hh+10,'#ffd24a',8,true);}}}
   for(const p of E.projs){const b=F.projBox(p);X.strokeStyle='rgba(255,60,60,.95)';X.strokeRect(b.x0,b.y0,b.x1-b.x0,b.y1-b.y0);}
   for(const z of E.zones){X.strokeStyle='rgba(255,140,60,.8)';X.setLineDash([4,4]);X.strokeRect(z.x-z.w,z.tall?GROUND-330:GROUND-200,z.w*2,z.tall?335:205);X.setLineDash([]);}
   X.restore();}
@@ -402,6 +458,13 @@ function drawHUD(E){
     txt(full?'SUPER READY — '+f.c.super.name:'SUPER',L?mx:mx+mw,my-6,full?'#ffd24a':'#9fb0bd',11,full,L?'left':'right');
     if(f.c.rage)txt(f.rage?'HYDRAZINE RAGE':'rage at 40% hull',L?mx+mw+12:mx-12,my+10,f.rage?'#ff5a1a':'#5a4a40',11,f.rage,L?'left':'right');
     if(f.bigT>0)txt('BIG '+Math.ceil(f.bigT/60),L?mx+mw+12:mx-12,my+10,'#7fd0ff',12,true,L?'left':'right');
+    if(F.isGiant(f)){const sw=bw*0.6,sx=L?x+bw-sw:x,sy2=y+20,sf=f.brk>0?1:f.stag/100;X.fillStyle='rgba(0,0,0,.6)';X.fillRect(sx-1,sy2-1,sw+2,7);X.fillStyle=f.brk>0?((frame>>2)%2?'#ffd24a':'#fff'):'#b14bff';X.fillRect(L?sx+sw*(1-sf):sx,sy2,sw*sf,5);
+      txt(f.brk>0?'TO A KNEE':'STAGGER',L?sx-6:sx+sw+6,sy2+6,'#b14bff',9,true,L?'right':'left');}
+    if(E.team){const T=E.team[s];let k=0;for(let i=0;i<T.m.length;i++){if(i===T.act)continue;const m=T.m[i],bx=L?x+k*96:x+bw-(k+1)*96,by=y+58;
+        X.fillStyle='rgba(0,0,0,.6)';X.fillRect(bx,by,90,8);X.fillStyle=m.hp<=0?'#3a0d12':'#e0a92e';X.fillRect(bx+1,by+1,88*Math.max(0,m.hp)/m.maxhp,6);
+        if(T.red[i]>m.hp){X.fillStyle='rgba(255,77,77,.6)';X.fillRect(bx+1+88*m.hp/m.maxhp,by+1,88*(T.red[i]-m.hp)/m.maxhp,6);}
+        txt(m.hp<=0?m.c.name+' ✕':m.c.name,L?bx:bx+90,by+20,m.hp<=0?'#5a3a3a':'#9fb0bd',9,false,L?'left':'right');k++;}
+      if(F.benchNext(E,s)>=0){txt('TAG '+(T.tagCd>0?Math.ceil(T.tagCd/60):'✓')+'   ASSIST '+(T.astCd>0?Math.ceil(T.astCd/60):'✓'),L?mx:mx+mw,my+24,'#7fd0ff',10,true,L?'left':'right');}}
     // live combo counter
     const n=E.combo[s];if(n>=2){const cx=L?40:W-40;txt(n+' HITS',cx,170,'#ffd24a',30,true,L?'left':'right');txt(E.comboDmg[s]+' DMG',cx,192,'#fff',14,true,L?'left':'right');}
   }
@@ -446,12 +509,12 @@ function drawTitle(){drawStage('ishtar',null);X.fillStyle='rgba(5,7,13,.55)';X.f
   txt('see it with your own two eyes',W/2,H-18,'#48505e',11,false,'center');}
 function drawMenu(){drawStage('pod19',null);X.fillStyle='rgba(5,7,13,.72)';X.fillRect(0,0,W,H);
   txt('FOG AND FIRE',W/2,70,'#ff7a3a',34,true,'center');txt('MAIN MENU',W/2,98,'#9fb0bd',13,false,'center');
-  for(let i=0;i<MENU.length;i++){const s=i===menuI;txt((s?'▶ ':'')+MENU[i]+(s?' ◀':''),W/2,160+i*40,s?'#ffd24a':'#cfd6e0',s?22:19,s,'center');}
-  txt('CPU: ◀ '+DIFFS[diff]+' ▶',W/2,160+MENU.length*40+10,menuI<3?'#7fd0ff':'#48505e',14,true,'center');
-  const d={0:'Eight duels: Pod 19 bouts, the Great Ones at THE EXIT, then Kyle.',1:'You against the CPU. Best of three.',2:'Two players, one keyboard or two pads.',3:'Hitboxes, frame data, a dummy that never dies.',4:'Every suit’s inputs.',5:'The old squad wave game (co-op PvE).',6:'Buttons and the system.'}[menuI];
+  for(let i=0;i<MENU.length;i++){const s=i===menuI;txt((s?'▶ ':'')+MENU[i]+(s?' ◀':''),W/2,138+i*31,s?'#ffd24a':'#cfd6e0',s?19:16,s,'center');}
+  txt('CPU: ◀ '+DIFFS[diff]+' ▶',W/2,138+MENU.length*31+4,MENU[menuI]&&!/MOVE|SQUAD|HOW/.test(MENU[menuI])?'#7fd0ff':'#48505e',13,true,'center');
+  const d={'ARCADE':'Eight duels: Pod 19 bouts, the Great Ones at THE EXIT, then Kyle.','VERSUS CPU':'You against the CPU. Best of three.','VERSUS 2P':'Two players, one keyboard or two pads.','TRAINING':'Hitboxes, frame data, a dummy that never dies.','TAG 2 v 2':'Two suits a side. TAG (Y / M / RB) swaps your point; ASSIST (H / G / LT) calls the bench in for one move. KO the whole team.','TAG 3 v 3':'Three suits a side. The bench heals some red hull. One meter per team.','BOSS RAID — MORNINGSTAR':'Three suits against the giant: break its CHEST ORB, JETS, HIP JOINT and bring it to a knee.','MOVE LIST':'Every suit’s inputs.','SQUAD WAVES (BONUS)':'The old squad wave game (co-op PvE).','HOW TO PLAY':'Buttons and the system.'}[MENU[menuI]];
   txt(d,W/2,H-40,'#9fb0bd',12,false,'center');}
 function drawSelect(){drawStage('crawler',null);X.fillStyle='rgba(5,7,13,.62)';X.fillRect(0,0,W,H);
-  const ids=F.ROSTER,two=mode==='versus2p',title={arcade:'ARCADE — CHOOSE YOUR SUIT',versus:sel.who?'CHOOSE THE CPU’S SUIT':'VERSUS CPU — CHOOSE YOUR SUIT',versus2p:'VERSUS — BOTH PLAYERS CHOOSE',training:sel.who?'CHOOSE THE DUMMY':'TRAINING — CHOOSE YOUR SUIT'}[mode];
+  const ids=F.ROSTER,two=mode==='versus2p',title={arcade:'ARCADE — CHOOSE YOUR SUIT',versus:sel.who?'CHOOSE THE CPU’S SUIT':'VERSUS CPU — CHOOSE YOUR SUIT',versus2p:'VERSUS — BOTH PLAYERS CHOOSE',training:sel.who?'CHOOSE THE DUMMY':'TRAINING — CHOOSE YOUR SUIT',tag:(sel.who?'CHOOSE THE CPU’S TEAM':'TAG '+sel.size+' v '+sel.size+' — CHOOSE YOUR TEAM')+' ('+(sel.team[sel.who].length+1)+'/'+sel.size+')',raid:'BOSS RAID — CHOOSE '+sel.size+' SUITS AGAINST MORNINGSTAR ('+Math.min(sel.size,sel.team[0].length+1)+'/'+sel.size+')'}[mode];
   txt(title,W/2,36,'#cfd6e0',18,true,'center');
   const tw=96,th=86,gx=W/2-GRID_COLS*tw/2,gy=330;
   for(let i=0;i<ids.length;i++){const cx=gx+(i%GRID_COLS)*tw+(i>=GRID_COLS?tw/2:0),cy=gy+((i/GRID_COLS)|0)*th,id=ids[i],lk=locked(id),c=F.CHARS[id];
@@ -464,8 +527,10 @@ function drawSelect(){drawStage('crawler',null);X.fillStyle='rgba(5,7,13,.62)';X
     const c=F.CHARS[id],x=s?W-170:170;drawCell(id,(sel.pick[s]?'spec_4':'idle_'+(((frame/8)|0)%4)),x,300,s?-1:1,1.05,{});
     txt(c.name,s?W-30:30,78,c.color,24,true,s?'right':'left');txt(c.pilot+' · '+c.style,s?W-30:30,98,'#9fb0bd',11,false,s?'right':'left');
     const stat=[['HULL',c.hp/1300],['POWER',c.dmgk/1.2],['SPEED',c.walk/3.6],['REACH',c.reach/1.25]];
-    for(let k=0;k<4;k++){const yy=116+k*14,x0=s?W-30-160:30;txt(stat[k][0],s?W-30-166:30,yy+9,'#48505e',9,false,s?'right':'left');X.fillStyle='#1a1f2b';X.fillRect(s?x0:x0+48,yy,110,8);X.fillStyle=c.color;X.fillRect(s?x0:x0+48,yy,110*clamp(stat[k][1],0,1),8);}
+    for(let k=0;k<4;k++){const yy=116+k*14,x0=s?W-30-160:30;txt(stat[k][0],s?W-30-166:30,yy+7,'#48505e',9,false,s?'right':'left');X.fillStyle='#1a1f2b';X.fillRect(s?x0:x0+48,yy,110,8);X.fillStyle=c.color;X.fillRect(s?x0:x0+48,yy,110*clamp(stat[k][1],0,1),8);}
     if(sel.pick[s])txt(two?'READY':'✓',s?W-30:30,186,'#4ade80',14,true,s?'right':'left');}
+  if(sel.size)for(let s=0;s<2;s++){const T=sel.team[s];for(let k=0;k<(s===1&&mode==='raid'?1:sel.size);k++){const bx=s?W-30-(k+1)*44:30+k*44,by=200;X.fillStyle='rgba(0,0,0,.6)';X.fillRect(bx,by,40,40);X.strokeStyle=s?'#ff5b6b':'#4b9bff';X.strokeRect(bx+0.5,by+0.5,39,39);
+      if(T[k]){X.save();X.beginPath();X.rect(bx,by,40,40);X.clip();drawCell(T[k],'idle_0',bx+20,by+38,s?-1:1,0.2*Math.min(1,150/F.CHARS[T[k]].hurt[1])*(T[k]==='morningstar'?2:1),{});X.restore();}}}
   if(sel.step===2){X.fillStyle='rgba(0,0,0,.8)';X.fillRect(W/2-240,200,480,96);const t=sel.stage<0?null:F.STAGES[sel.stage];
     txt('STAGE',W/2,226,'#9fb0bd',12,true,'center');txt('◀ '+(t?STAGE_INFO[t].name:'RANDOM')+' ▶',W/2,256,'#ffd24a',22,true,'center');txt(t?STAGE_INFO[t].sub:'pick for me',W/2,280,'#9fb0bd',11,false,'center');}
   txt(two?'P1: WASD + J pick · P2: ARROWS + NUMPAD 1 / ENTER pick · ESC back':'ARROWS/WASD move · ENTER/J pick · Q random · ESC back'+(mode==='versus'||mode==='training'?' · CPU '+DIFFS[diff]:''),W/2,H-8,'#48505e',11,false,'center');}
@@ -525,14 +590,20 @@ function fightTick(){
   if(M.over){endT++;if(endT>70)onMatchOver();}
   if(DEMO&&++demoT>50*60)toTitle();}
 function drawFight(){const E=M.E;
+  camStep(E);
   X.save();if(shake>0)X.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
-  drawStage(cfg.stage,E);
+  drawStage(cfg.stage,E,CAM);
   if(E.freeze>0){X.fillStyle='rgba(0,0,0,'+(0.5*Math.min(1,E.freeze/10))+')';X.fillRect(0,0,W,H);}
+  X.save();camApply(CAM,1);
   drawZones(E);
-  const order=E.f.slice().sort((a,b)=>(a.move?1:0)-(b.move?1:0));for(const f of order)drawSuit(f,E);
+  // the giant draws first (it's the backdrop of the duel); then whoever isn't attacking; a climber rides on top
+  const order=E.f.slice().sort((a,b)=>(a.mountT>0?2:0)-(b.mountT>0?2:0)+(F.isGiant(b)?1:0)-(F.isGiant(a)?1:0)+((a.move?1:0)-(b.move?1:0))*0.5);for(const f of order)drawSuit(f,E);
+  if(E.assists)for(const a of E.assists)drawSuit(a,E);
   drawProjs(E);drawFX();
   if(cfg.mode==='training'&&TR.hit)drawBoxes(E);
   X.restore();
+  X.restore();
+  if(TOUCH.on&&!cfg.cpu[0])drawTouch();
   if(flashW>0){X.fillStyle='rgba(255,240,200,'+(flashW*0.5)+')';X.fillRect(0,0,W,H);}
   if(E.freeze>0){const f=E.f[E.freezeBy];txt(f.c.super.name,W/2,140,'#ffd24a',40,true,'center');txt(f.c.pilot,W/2,166,'#cfd6e0',14,true,'center');}
   drawHUD(E);if(cfg.mode==='training')drawTraining(E);
@@ -563,7 +634,24 @@ function render(){X.imageSmoothingEnabled=true;
   else if(m==='cpu')startFight({mode:'versus',p1,p2,stage:st,cpu:[true,true],lvl:[diff,diff],seed:+(QS.get('seed')||7)});
   else if(m==='versus')startFight({mode:'versus',p1,p2,stage:st,cpu:[false,true],lvl:[diff,diff]});
   else if(m==='arcade'){startArcade(p1);}
+  else if(m==='tag'||m==='raid'){const L=k=>(QS.get(k)||'').split(',').filter(x=>F.CHARS[x]);const t1=L('t1').length?L('t1'):['sandtrap','solitaire','foxeylady'].slice(0,+(QS.get('n')||3));
+    const t2=m==='raid'?['morningstar']:(L('t2').length?L('t2'):['namor','angie','holyroller'].slice(0,t1.length));const auto=QS.has('auto');
+    startFight({mode:m,team1:t1,team2:t2,stage:st,cpu:[auto,true],lvl:[diff,diff],seed:+(QS.get('seed')||7)});}
   else if(m==='movelist'){mlId=p1;GS='movelist';}else if(m==='menu')GS='menu';else if(m==='select'){newSel('versus');}})();
+/* ---- PHONE PAD (1117): left thumb = stick (drag), right thumb = L M H S + TAG / ASSIST. Render-only input; ?touch=1 forces it. ---- */
+const TOUCH={on:QS.get('touch')==='1'||(('ontouchstart' in window)&&QS.get('touch')!=='0'),o:{},stick:null,btn:{}};
+// PAD_LIFT (HUD-1117): the pad sits 48 px up so the bottom row (SP, TAG) clears the SUPER meter band (label top ~H-44); was sitting on P2's meter.
+const PAD_LIFT=48,TB=[['L',W-200,H-70-PAD_LIFT,'L'],['M',W-130,H-100-PAD_LIFT,'M'],['H',W-60,H-130-PAD_LIFT,'H'],['S',W-130,H-30-PAD_LIFT,'SP'],['G',W-60,H-60-PAD_LIFT,'TAG'],['A',W-200,H-140-PAD_LIFT,'AST']];
+function touchXY(t){const r=C.getBoundingClientRect();return [(t.clientX-r.left)*W/r.width,(t.clientY-r.top)*H/r.height];}
+function touchRead(e){if(GS!=='fight')return;e.preventDefault();TOUCH.o={};let st=null;
+  for(const t of e.touches){const [x,y]=touchXY(t);if(x<W*0.45){if(!TOUCH.stick)TOUCH.stick=[x,y];st=[x,y];const dx=x-TOUCH.stick[0],dy=y-TOUCH.stick[1];
+      if(dx<-18)TOUCH.o.l=true;if(dx>18)TOUCH.o.r=true;if(dy<-22)TOUCH.o.u=true;if(dy>22)TOUCH.o.d=true;}
+    else for(const b of TB)if(Math.hypot(x-b[1],y-b[2])<32)TOUCH.o[b[0]]=true;}
+  if(!st)TOUCH.stick=null;TOUCH.cur=st;}
+if(TOUCH.on){for(const ev of ['touchstart','touchmove','touchend','touchcancel'])C.addEventListener(ev,touchRead,{passive:false});}
+function drawTouch(){X.save();X.globalAlpha=0.35;for(const b of TB){X.fillStyle=TOUCH.o[b[0]]?'#ffd24a':'#1a2030';X.beginPath();X.arc(b[1],b[2],28,0,7);X.fill();X.strokeStyle='#cfd6e0';X.stroke();X.globalAlpha=0.8;txt(b[3],b[1],b[2]+4,'#fff',11,true,'center');X.globalAlpha=0.35;}
+  if(TOUCH.stick){X.strokeStyle='#cfd6e0';X.beginPath();X.arc(TOUCH.stick[0],TOUCH.stick[1],46,0,7);X.stroke();if(TOUCH.cur){X.fillStyle='#cfd6e0';X.beginPath();X.arc(TOUCH.cur[0],TOUCH.cur[1],18,0,7);X.fill();}}
+  X.restore();}
 const QA={idleCpu:false};   // headless QA only (tools/_qa): park the CPU so scripted keys land
 window.__faf={get GS(){return GS;},get M(){return M;},F,startFight,keys,QA};
 requestAnimationFrame(loop);

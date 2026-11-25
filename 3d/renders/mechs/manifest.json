@@ -1303,14 +1303,14 @@
   "source": "blender/bk_suits.py --suit solitaire -> renders/mechs_bk/solitaire_bk",
   "look": "BLENDKIT ground-up (1110): BlenderKit parts on the joint rig, palette restyle + painterly (Kuwahara r2 @3x)",
   "blendkit": [
-   "Hardsurface sword (Alojis studio Bdl, royalty_free)",
+   "Armour Plate 03 PL (Pierre-Louis Baril, royalty_free)",
    "Sci Fi  robot  Rig (peeraphon viriyahirunpaiboon, royalty_free)"
   ]
  },
  "angie_bk": {
-  "name": "JUSTICE-RIG",
+  "name": "ANGIE HARTNELL",
   "arch": "DUELIST",
-  "canon": "Angie Hartnell, the Martian Mistress of Murder: trident, daggers, ballerina footwork in steel. No OG render. BlenderKit Red robot (PKO Studio) retargeted, crimson, trident + daggers.",
+  "canon": "Angie Hartnell, the Martian Mistress of Murder (EXO): short impaler + two back daggers (Pod 19, SC64/SC76); steel gorget, right gauntlet vambrace, left shin greave with a skull boss. The trident + net are JUSTICE's (Q1242). BlenderKit Red robot (PKO Studio) retargeted, crimson; impaler built from primitives (Q1255).",
   "frames": {
    "jab": [
     0,
@@ -1416,8 +1416,7 @@
   "look": "BLENDKIT ground-up (1110): BlenderKit parts on the joint rig, palette restyle + painterly (Kuwahara r2 @3x)",
   "blendkit": [
    "Red robot (PKO Studio, royalty_free)",
-   "Sci-fi Dagger (Alojis studio Bdl, royalty_free)",
-   "Trident (Danil Solomyanko, royalty_free)"
+   "Sci-fi Dagger (Alojis studio Bdl, royalty_free)"
   ]
  },
  "backdraft_bk": {
@@ -2134,6 +2133,118 @@
    "Hard Surface PL-05 (Pierre-Louis Baril, royalty_free)",
    "Sci fi jat engine (Avishka Induwara, royalty_free)",
    "Sci-fi Engine (Thanh Cong, royalty_free)"
+  ]
+ },
+ "angie1119_bk": {
+  "name": "ANGIE HARTNELL",
+  "arch": "DUELIST",
+  "canon": "Angie Hartnell, the Martian Mistress of Murder (EXO): short impaler + two back daggers (Pod 19, SC64/SC76); steel gorget, right gauntlet vambrace, left shin greave with a skull boss. The trident + net are JUSTICE's (Q1242). BlenderKit Red robot (PKO Studio) retargeted, crimson; impaler built from primitives (Q1255).",
+  "frames": {
+   "jab": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2
+   ],
+   "heavy": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    4,
+    5,
+    5,
+    5,
+    5,
+    5
+   ],
+   "spec": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    5,
+    5,
+    5,
+    5,
+    5,
+    5,
+    6,
+    6,
+    6,
+    6,
+    6
+   ]
+  },
+  "engine_scale": 1.0,
+  "boss_scale": null,
+  "damage_tiers": [
+   0,
+   1,
+   2
+  ],
+  "passes": [
+   "color",
+   "glow",
+   "wire"
+  ],
+  "finished": true,
+  "variant_of": "angie",
+  "actions": {
+   "air": 2,
+   "block": 1,
+   "boost": 2,
+   "destroyed": 10,
+   "down": 3,
+   "heavy": 6,
+   "hit": 2,
+   "idle": 4,
+   "jab": 3,
+   "spec": 7,
+   "turn": 2,
+   "turntable": 8,
+   "walk": 4
+  },
+  "source": "blender/bk_suits.py --suit angie1119 -> renders/mechs_bk/angie1119_bk",
+  "look": "BLENDKIT ground-up (1110): BlenderKit parts on the joint rig, palette restyle + painterly (Kuwahara r2 @3x) \u00b7 1119 opt-in (?angie=1119): clip-fixed arm/impaler, greave out, spiked pauldron + crest",
+  "blendkit": [
+   "Red robot (PKO Studio, royalty_free)",
+   "Sci-fi Dagger (Alojis studio Bdl, royalty_free)"
   ]
  }
 }

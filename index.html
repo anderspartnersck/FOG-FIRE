@@ -50,13 +50,18 @@ const IMGS={};
 function img(rel){let im=IMGS[rel];if(im)return im;im=IMGS[rel]=new Image();im._ok=false;let i=0;
   const next=()=>{if(i>=BASES.length){im._bad=true;return;}const b=BASES[i++];im.src=b[0]+rel+'.'+b[1];};
   im.onload=()=>{im._ok=true;};im.onerror=next;next();return im;}
-const sheet=(sid,pass)=>img('atlas/'+sid+'_'+pass+'_1x');
+// FRAMES-52: new drawings may live on an extra atlas PAGE (index entry [col,row,page]; page 0 = the existing sheet, untouched;
+// page n = <sid>_<pass>_1x_p<n+1>). A page loads the first time a frame on it is asked for.
+const sheet=(sid,pass,pg)=>img('atlas/'+sid+'_'+pass+'_1x'+(pg?'_p'+(pg+1):''));
 // 1117: the zoom camera draws the fighters from the 2x colour atlas, requested only for suits that are actually fighting
 const LITE=QS.has('lite')||(navigator.deviceMemory&&navigator.deviceMemory<4);
-const sheet2=sid=>(!LITE&&FAF_ATLAS[sid]&&FAF_ATLAS[sid].r2)?img('atlas/'+sid+'_color_2x'):null;
+const sheet2=(sid,pg)=>(!LITE&&FAF_ATLAS[sid]&&FAF_ATLAS[sid].r2)?img('atlas/'+sid+'_color_2x'+(pg?'_p'+(pg+1):'')):null;
 // 1119: opt-in alternate atlases (ANGIE 1119 clip-fixed rebuild = ?angie=1119) load only when picked
 const ALT_SID={angie1119_bk:QS.get('angie')==='1119'};
 for(const sid in FAF_ATLAS){if(sid in ALT_SID&&!ALT_SID[sid])continue;sheet(sid,'color');sheet(sid,'glow');}
+// the extra pages (FRAMES-52 drawings) load for the suits actually fighting, at the fight's start
+function preloadPages(id){const L=LOOK[id];const A=L&&FAF_ATLAS[L.sid];if(!A)return;const pg=new Set();for(const n in A.frames)if(A.frames[n][2])pg.add(A.frames[n][2]);
+  for(const p of pg){sheet(L.sid,'color',p);sheet(L.sid,'glow',p);sheet2(L.sid,p);}}
 const STAGE_INFO={
   pod19:{name:'POD 19',sub:'over the pod · Phaser on the deck',sky:['#1a0e1e','#3a1430'],acc:'#ff5bc8'},
   newqom:{name:'NEW QOM',sub:'the spaceport outside the Imamate’s dome',sky:['#0a1428','#16305a'],acc:'#7fd0ff'},
@@ -68,26 +73,29 @@ const PLATE_DIR={newqom:QS.get('qom')==='1117'?'newqom':'newqom1118'};
 const plate=(t,L)=>img('env_bk/'+(PLATE_DIR[t]||t)+'/1x/'+L);
 for(const t in STAGE_INFO)for(const L of ['far','mid','near'])plate(t,L);
 
-// suit -> atlas + render tint. The Great Ones ride a squad model in their own colours until they get Blender builds.
+// suit -> atlas + render tint. The Great Ones ride a squad model in their own colours until they get Blender builds
+// (1125-52B: the Great Ones have their own Blender models, atlas sid = the plain id, e.g. deadletter; an <id>_bk build is
+// also accepted. Either is used untinted; the old tinted squad look stays the fallback until the atlas syncs).
+function own(id,base,tint){return FAF_ATLAS[id]?{sid:id}:FAF_ATLAS[id+'_bk']?{sid:id+'_bk'}:{sid:base,tint};}
 const LOOK={sandtrap:{sid:'sandtrap_bk'},backdraft:{sid:'backdraft_bk'},holyroller:{sid:'holyroller_bk'},foxeylady:{sid:'foxeylady_bk'},
   poison:{sid:'poison_bk'},solitaire:{sid:'solitaire_bk'},namor:{sid:'namor_bk'},angie:{sid:(ALT_SID.angie1119_bk&&FAF_ATLAS.angie1119_bk)?'angie1119_bk':'angie_bk'},morningstar:{sid:'morningstar'},
-  deadletter:{sid:'solitaire_bk',tint:{col:'#5fd8ff',a:0.55,lift:0.18}},widow:{sid:'angie_bk',tint:{col:'#d8f0c0',a:0.8,lift:0.12}},
-  undertow:{sid:'namor_bk',tint:{col:'#14c4b0',a:0.75}},anvil:{sid:'foxeylady_bk',tint:{col:'#c08a22',a:0.75}}};
+  deadletter:own('deadletter','solitaire_bk',{col:'#5fd8ff',a:0.55,lift:0.18}),widow:own('widow','angie_bk',{col:'#d8f0c0',a:0.8,lift:0.12}),
+  undertow:own('undertow','namor_bk',{col:'#14c4b0',a:0.75}),anvil:own('anvil','foxeylady_bk',{col:'#c08a22',a:0.75})};
 const tmp=document.createElement('canvas'),tg=tmp.getContext('2d');const TINTC=new Map();
 function sk(id){const L=LOOK[id]||LOOK.sandtrap,A=FAF_ATLAS[L.sid],c=F.CHARS[id];return A&&c?c.hurt[1]*1.12/A.vh:1;}
 function drawCell(id,name,x,y,face,k,o){
   o=o||{};const L=LOOK[id]||LOOK.sandtrap,sid=L.sid,A=FAF_ATLAS[sid];if(!A)return false;k*=sk(id);
   const fr=A.frames[name]||A.frames[name.replace(/_d[12]_/,'_')]||A.frames[name.replace(/_\d+$/,'_0')]||A.frames.idle_0;
-  let im=sheet(sid,'color');if(!im._ok)return false;
+  const pg=fr[2]||0;let im=sheet(sid,'color',pg);if(!im._ok)return false;
   let cw=A.cell[0],ch=A.cell[1],ax=A.anchor[0],ay=A.anchor[1],sx=fr[0]*cw,sy=fr[1]*ch,k1=k;
-  const g2=o.hi?sheet2(sid):null;
+  const g2=o.hi?sheet2(sid,pg):null;
   if(g2&&g2._ok){im=g2;cw=A.r2.cell[0];ch=A.r2.cell[1];ax=A.r2.anchor[0];ay=A.r2.anchor[1];sx=fr[0]*cw;sy=fr[1]*ch;k=k/2;}
   X.save();X.translate(x,y);X.scale(face,1);if(o.rot)X.rotate(o.rot);X.scale(k,k*(o.sy||1));if(o.alpha!=null)X.globalAlpha=o.alpha;
   X.imageSmoothingEnabled=true;
   const tint=L.tint,flash=o.flash||0;
   // PERF 1117 (HIGH TABLE docs/PERF-3D-RULES.md 5+6): a tinted look re-composed every cell every frame (resize tmp + 3-4
   // composite passes). A tinted, unflashed cell is now baked once per (look, sheet, frame) and blitted. Render-only.
-  const tk=(tint&&!flash)?id+'|'+(im===g2?'h':'c')+'|'+sx+','+sy+','+cw+','+ch:null,tc=tk&&TINTC.get(tk);
+  const tk=(tint&&!flash)?id+'|'+(im===g2?'h':'c')+pg+'|'+sx+','+sy+','+cw+','+ch:null,tc=tk&&TINTC.get(tk);
   if(tc)X.drawImage(tc,-ax,-ay);
   else if(tint||flash){if(tmp.width!==cw||tmp.height!==ch){tmp.width=cw;tmp.height=ch;}else{tg.globalCompositeOperation='source-over';tg.globalAlpha=1;tg.clearRect(0,0,cw,ch);}tg.drawImage(im,sx,sy,cw,ch,0,0,cw,ch);
     if(tint){tg.globalCompositeOperation='color';tg.globalAlpha=tint.a;tg.fillStyle=tint.col;tg.fillRect(0,0,cw,ch);
@@ -97,7 +105,7 @@ function drawCell(id,name,x,y,face,k,o){
     if(tk){if(TINTC.size>48)TINTC.clear();const c=document.createElement('canvas');c.width=cw;c.height=ch;c.getContext('2d').drawImage(tmp,0,0);TINTC.set(tk,c);}
     X.drawImage(tmp,-ax,-ay);}
   else X.drawImage(im,sx,sy,cw,ch,-ax,-ay,cw,ch);
-  const g=sheet(sid,'glow');if(g._ok&&o.glow!==false){if(k!==k1){X.scale(k1/k,k1/k);cw=A.cell[0];ch=A.cell[1];ax=A.anchor[0];ay=A.anchor[1];sx=fr[0]*cw;sy=fr[1]*ch;}
+  const g=sheet(sid,'glow',pg);if(g._ok&&o.glow!==false){if(k!==k1){X.scale(k1/k,k1/k);cw=A.cell[0];ch=A.cell[1];ax=A.anchor[0];ay=A.anchor[1];sx=fr[0]*cw;sy=fr[1]*ch;}
     X.globalCompositeOperation='lighter';X.globalAlpha=(o.alpha!=null?o.alpha:1)*0.85;X.drawImage(g,sx,sy,cw,ch,-ax,-ay,cw,ch);}
   X.restore();return true;}
 
@@ -158,17 +166,18 @@ const ATTRACT_F=(QS.has('attract')&&QS.get('attract')!==''?+QS.get('attract'):25
 const DIFFS=['EASY','NORMAL','HARD','HARDEST'];let diff=+(QS.get('cpu')||1);
 const MENU=CLASSIC?['ARCADE','VERSUS CPU','VERSUS 2P','TRAINING','MOVE LIST','SQUAD WAVES (BONUS)','HOW TO PLAY']:['ARCADE','VERSUS CPU','VERSUS 2P','TRAINING','TAG 2 v 2','TAG 3 v 3','BOSS RAID — MORNINGSTAR','MOVE LIST','SQUAD WAVES (BONUS)','HOW TO PLAY'];let menuI=0;
 let mode='versus',sel=null,stageSel=0,M=null,cfg=null,ARC=null,DEMO=false,demoT=0,resultI=0;
-let mlId='sandtrap',mlScroll=0,howFrom='menu',mlFrom='menu';
+let mlId='sandtrap',mlPage=0,howFrom='menu',mlFrom='menu';
 const TR={hit:QS.has('hitbox'),dummy:'stand',inf:true,fd:true,hist:[],lastIn:'',last:null};
 const DUMMIES=['stand','crouch','jump','block','cpu'];
 if(window.CKBoot&&GS==='boot')CKBoot.hold(Infinity);
 
 /* ============================ FLOW ============================ */
-function toTitle(){GS='title';idleT=0;DEMO=false;paused=false;}
+function toTitle(){GS='title';idleT=0;DEMO=false;paused=false;if(M&&M.setPaused)M.setPaused(false);}
 function startDemo(){const pool=F.ROSTER.slice(0,8),r=Math.random;const a=pool[(r()*8)|0];let b=pool[(r()*8)|0];if(b===a)b=pool[(pool.indexOf(a)+3)%8];
   DEMO=true;demoT=0;startFight({mode:'demo',p1:a,p2:b,stage:F.STAGES[(r()*5)|0],cpu:[true,true],lvl:[2,2],seed:(r()*1e6)|0});}
 function startFight(c){cfg=c;M=F.match({p1:c.p1,p2:c.p2,team1:c.team1,team2:c.team2,seed:c.seed||((Math.random()*1e9)|0),training:c.mode==='training',infMeter:c.mode==='training'&&TR.inf});
-  GS='fight';paused=false;endT=0;FX.length=0;CAM.snap=true;BAN.length=0;shake=0;R0.clear&&R0.clear();RM.length=0;TR.hist.length=0;TR.last=null;
+  GS='fight';paused=false;M.setPaused&&M.setPaused(false);LATCH[0]={};LATCH[1]={};endT=0;FX.length=0;CAM.snap=true;BAN.length=0;shake=0;R0.clear&&R0.clear();RM.length=0;TR.hist.length=0;TR.last=null;OBR.hit=-1;OBR.words.length=0;
+  for(const id of new Set([].concat(c.team1||[c.p1],c.team2||[c.p2])))preloadPages(id);
   if(c.mode==='training')resetTraining();}
 function resetTraining(){const E=M.E;E.f[0].x=W/2-120;E.f[1].x=W/2+120;for(const f of E.f){f.y=GROUND;f.vx=f.vy=0;f.hp=f.maxhp;f.move=null;f.mkey='';f.state='stand';f.hitstun=f.blockstun=f.kd=0;f.airHit=false;f.juggle=0;f.juggleFull=false;f.bigT=0;}E.projs.length=0;E.zones.length=0;E.f[0].face=1;E.f[1].face=-1;}
 function newSel(m,size){mode=m;sel={step:0,cur:[0,1],pick:[null,null],ready:[false,false],stage:-1,who:0,size:size||0,team:[[],[]]};
@@ -203,22 +212,22 @@ function menuKey(code,pad){
     else if(isBack(code))toTitle();
     else if(isOk(code)){SFX.ok();const it=MENU[menuI];
       if(it==='ARCADE')newSel('arcade');else if(it==='VERSUS CPU')newSel('versus');else if(it==='VERSUS 2P')newSel('versus2p');
-      else if(it==='TRAINING')newSel('training');else if(it==='TAG 2 v 2')newSel('tag',2);else if(it==='TAG 3 v 3')newSel('tag',3);else if(it.startsWith('BOSS RAID'))newSel('raid',3);else if(it==='MOVE LIST'){mlFrom='menu';mlScroll=0;GS='movelist';}
+      else if(it==='TRAINING')newSel('training');else if(it==='TAG 2 v 2')newSel('tag',2);else if(it==='TAG 3 v 3')newSel('tag',3);else if(it.startsWith('BOSS RAID'))newSel('raid',3);else if(it==='MOVE LIST'){mlFrom='menu';mlPage=0;GS='movelist';}
       else if(it==='HOW TO PLAY'){howFrom='menu';GS='howto';}
       else if(it.startsWith('SQUAD WAVES'))location.href='waves.html'+(QS.get('from')?'?from='+QS.get('from'):'');}
     return;}
-  if(GS==='howto'){if(isBack(code)||isOk(code)){if(howFrom==='pause')GS='fight';else GS='menu';}return;}
-  if(GS==='movelist'){const ids=F.ROSTER;
-    if(isL(code)){mlId=ids[(ids.indexOf(mlId)+ids.length-1)%ids.length];mlScroll=0;SFX.ui();}
-    else if(isR(code)){mlId=ids[(ids.indexOf(mlId)+1)%ids.length];mlScroll=0;SFX.ui();}
-    else if(isUp(code))mlScroll=Math.max(0,mlScroll-1);else if(isDn(code))mlScroll=Math.min(8,mlScroll+1);
-    else if(isBack(code)||isOk(code)){GS=mlFrom==='pause'?'fight':'menu';}
+  if(GS==='howto'){if(isBack(code)||isOk(code)){GS=howFrom==='pause'?'fight':'menu';}return;}                  // back into the (still paused) duel
+  if(GS==='movelist'){const ids=mlFrom==='pause'&&M?fightIds():F.ROSTER,np=mlPages(F.movelist(mlId),ML_CAP).length;
+    if(isL(code)){mlId=ids[(ids.indexOf(mlId)+ids.length-1)%ids.length];mlPage=0;SFX.ui();}
+    else if(isR(code)){mlId=ids[(ids.indexOf(mlId)+1)%ids.length];mlPage=0;SFX.ui();}
+    else if(isUp(code)){if(mlPage>0){mlPage--;SFX.ui();}}else if(isDn(code)){if(mlPage<np-1){mlPage++;SFX.ui();}}
+    else if(isBack(code)||isOk(code)){GS=mlFrom==='pause'?'fight':'menu';}                                        // from pause: back to the pause menu
     return;}
   if(GS==='select'){selectKey(code);return;}
   if(GS==='vs'){if(endT>40&&(isOk(code)||code==='Enter'))arcFight();else if(isBack(code)&&endT>40)toTitle();return;}
   if(GS==='fight'){
     if(paused){pauseKey(code);return;}
-    if(code==='Escape'||code==='KeyP'){paused=true;pauseI=0;pauseSub='';SFX.ui();return;}
+    if(code==='Escape'||code==='KeyP'){setPause(true,pad===1?1:0);pauseSub='';SFX.ui();return;}
     if(cfg.mode==='training'){if(code==='Tab')TR.hit=!TR.hit;if(code==='KeyR'||code==='Backspace')resetTraining();if(code==='KeyT')TR.dummy=DUMMIES[(DUMMIES.indexOf(TR.dummy)+1)%DUMMIES.length];}
     return;}
   if(GS==='results'){if(window.CKBoot&&CKBoot.held())return;if(endT<54)return;                         // CK BOOT: ~0.9 s results hold
@@ -272,24 +281,34 @@ function selectKey(code){
   else if(code==='KeyQ'||code==='KeyR'&&!two){/* random */let k=(Math.random()*8)|0;sel.cur[who]=k;SFX.ui();}
 }
 
-/* ---- pause ---- */
+/* ---- pause (52): RESUME · MOVE LIST · HOW TO PLAY · the training toggles · CHARACTER SELECT · MAIN MENU · QUIT TO TITLE.
+   Start / Esc / P / pad START opens it in any duel (1P, 2P, CPU, teams, during the Obliteration window). The sim is frozen
+   by not stepping it AND by M.setPaused (a paused match ignores step calls), so a pause can never change a replay; on
+   resume every button still held from the menu is latched until released, so the press that picked RESUME is not a jab. ---- */
+const LATCH=[{},{}];let pauseBy=0;
+function setPause(on,by){paused=!!on;if(M&&M.setPaused)M.setPaused(paused);if(on){pauseBy=by||0;pauseI=0;}
+  else if(cfg&&GS==='fight')for(let s=0;s<2;s++){LATCH[s]={};const o=sideInput(s,!cfg.two&&s===0);for(const k of ['L','M','H','S','G','A'])if(o[k])LATCH[s][k]=true;}}
+function unlatch(s,o){const L=LATCH[s];for(const k in L){if(o[k])delete o[k];else delete L[k];}return o;}
 function pauseItems(){const t=cfg.mode==='training';const a=['RESUME','MOVE LIST','HOW TO PLAY'];
   if(t)a.push('HITBOXES: '+(TR.hit?'ON':'OFF'),'DUMMY: '+TR.dummy.toUpperCase(),'METER: '+(TR.inf?'INFINITE':'NORMAL'),'FRAME DATA: '+(TR.fd?'ON':'OFF'),'RESET POSITIONS');
-  a.push('CHARACTER SELECT','QUIT TO TITLE');if(QS.get('from')==='keep')a.push('QUIT TO ARCADE');return a;}
+  a.push('CHARACTER SELECT','MAIN MENU','QUIT TO TITLE');if(QS.get('from')==='keep')a.push('QUIT TO ARCADE');return a;}
+// the move list opened from pause pages through the suits in THIS fight (both sides, whole teams), starting with the pauser's
+function fightIds(){const E=M.E;const a=E.team?E.team[pauseBy].ids.concat(E.team[1-pauseBy].ids):[E.f[pauseBy].id,E.f[1-pauseBy].id];return [...new Set(a)];}
 function pauseKey(code){const it=pauseItems();
   if(isUp(code)){pauseI=(pauseI+it.length-1)%it.length;SFX.ui();}else if(isDn(code)){pauseI=(pauseI+1)%it.length;SFX.ui();}
-  else if(code==='Escape'||code==='KeyP')paused=false;
+  else if(code==='Escape'||code==='KeyP')setPause(false);
   else if(isOk(code)){const s=it[pauseI];SFX.ok();
-    if(s==='RESUME')paused=false;else if(s==='MOVE LIST'){mlFrom='pause';mlId=M.E.f[0].id;mlScroll=0;paused=false;GS='movelist';}
-    else if(s==='HOW TO PLAY'){howFrom='pause';paused=false;GS='howto';}
+    if(s==='RESUME')setPause(false);else if(s==='MOVE LIST'){mlFrom='pause';mlId=fightIds()[0];mlPage=0;GS='movelist';}
+    else if(s==='HOW TO PLAY'){howFrom='pause';GS='howto';}
     else if(s.startsWith('HITBOXES'))TR.hit=!TR.hit;else if(s.startsWith('DUMMY'))TR.dummy=DUMMIES[(DUMMIES.indexOf(TR.dummy)+1)%DUMMIES.length];
     else if(s.startsWith('METER')){TR.inf=!TR.inf;M.E.infMeter=TR.inf;}else if(s.startsWith('FRAME'))TR.fd=!TR.fd;
-    else if(s==='RESET POSITIONS'){resetTraining();paused=false;}
+    else if(s==='RESET POSITIONS'){resetTraining();setPause(false);}
     else if(s==='CHARACTER SELECT'){paused=false;newSel(mode==='arcade'?'arcade':mode);}
+    else if(s==='MAIN MENU'){paused=false;GS='menu';}
     else if(s==='QUIT TO TITLE')toTitle();else if(s==='QUIT TO ARCADE')location.href="../COLEMAN'S KEEP.html";}}
 
 /* ============================ FX (render-only) ============================ */
-const FX=[],BAN=[];let shake=0,flashW=0;const R0=new Map();const RM=[];
+const FX=[],BAN=[];let shake=0,flashW=0;const R0=new Map();const RM=[];const OBR={hit:-1,words:[]};
 function spark(x,y,col,n,sp,life){for(let i=0;i<n;i++){const a=Math.random()*6.283,v=(0.4+Math.random())*sp;FX.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-1,life:life||18,max:life||18,col,sz:2+Math.random()*3});}}
 function ring(x,y,col,r){FX.push({ring:1,x,y,r:4,max:r,life:14,col});}
 function banner(text,side,col,big,life){BAN.push({text,side,col:col||'#fff',big:!!big,life:life||70,max:life||70});}
@@ -333,6 +352,16 @@ function onEvents(ev){
       case 'toobig':banner('TOO BIG TO THROW',f.side,'#9fb0bd',false,60);spark(e.x,e.y,'#9fb0bd',8,2,14);break;
       case 'marked':banner('LASED',e.by.side,'#ff3b3b',false,60);break;
       case 'waveburn':banner('WAVE BURN −'+e.n,f.side,'#b14bff',false,60);break;
+      // OBLITERATION (52) — our own staging: the window gauge + title card are drawn by drawOblitHUD, the beats here
+      case 'oblitopen':SFX.round();break;
+      case 'dazed':spark(f.x,f.y-F.heightOf(f)*0.9,'#ffd24a',8,1.5,24);break;
+      case 'oblit':for(const b of BAN)if(b.text==='K.O.')b.life=Math.min(b.life,8);flashW=0.5;shake=6;SFX.super();ring(f.x,f.y-F.heightOf(f)*0.5,f.c.color,90);break;
+      case 'oblitbeat':{const o=e.on,cx=o.x,cy=o.y-F.heightOf(o)*0.55;spark(cx,cy,f.c.color,14+e.n*6,3+e.n,20);spark(cx,cy,'#fff',6,2,14);ring(cx,cy,f.c.color,40+e.n*14);shake=Math.max(shake,5+e.n*3);SFX.hit(3);rmem(o).flash=0.9;
+        if(e.fx==='case')OBR.words.push({w:['CENTAURI','CHARLOTTE','FANFARE'][e.n-1],x:cx,y:cy-80-e.n*26,t:0});break;}
+      case 'obliterated':{const by=e.by,cx=f.x,cy=f.y-F.heightOf(f)*0.5;flashW=1;shake=24;SFX.ko();noise(0.9,0.4,300);tone(70,25,1.1,'sawtooth',0.12);
+        spark(cx,cy,by.c.color,60,8,44);spark(cx,cy,'#ffffff',30,6,30);spark(cx,cy,'#ffd24a',24,5,36);ring(cx,cy,'#fff',160);ring(cx,cy,by.c.color,240);
+        OBR.hit=frame;OBR.name=e.name;OBR.say=e.say;OBR.col=by.c.color;OBR.who=by.c.name;break;}
+      case 'oblitmiss':banner('OUT OF RANGE — '+e.need+' NEEDED',f.side,'#9fb0bd',false,90);SFX.block();break;
     }}}
 function tickFX(){for(const p of FX){p.life--;if(p.ring){p.r+=(p.max-p.r)*0.3;continue;}p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.vx*=0.96;}
   for(let i=FX.length-1;i>=0;i--)if(FX[i].life<=0)FX.splice(i,1);for(const b of BAN)b.life--;for(let i=BAN.length-1;i>=0;i--)if(BAN[i].life<=0)BAN.splice(i,1);
@@ -365,8 +394,79 @@ function drawStage(t,E,cam){const S=STAGE_INFO[t]||STAGE_INFO.pod19;cam=cam||CAM
   X.restore();}
 
 /* ============================ SUITS (pose = render-only read of the sim) ============================ */
+/* FRAMES-52 (docs/FRAMES-52.md): each pose names its NEW drawing set when one exists for the state, with the legacy
+   mapping (the pre-52 frames + render-only squash/lean) as .alt. framePick() uses the new drawing only when the suit's
+   atlas carries the WHOLE set (every drawing 0..n-1) and its page has decoded; otherwise the legacy pose. So art can land
+   suit by suit, set by set, and a missing or half-rendered set never shows. */
+/*@frame-pick*/
+function framePick(A,p,ready){if(!p.alt)return p;if(!A)return p.alt;const c=A._sets||(A._sets={}),k=p.set[0];let ok=c[k];
+  if(ok===undefined){ok=true;for(let i=0;i<p.set[1];i++)if(!A.frames[k+'_'+i]){ok=false;break;}c[k]=ok;}
+  return ok&&(!ready||ready(A.frames[p.name]))?p:framePick(A,p.alt,ready);}
+/*@frame-pick-end*/
+/* 52A+ TRANSITIONS (docs/FRAMES-52.md §"52A+ transitions"): short in-between drawings the RENDERER plays when a fighter
+   changes state. Render-only: read from the sim's state (plus this file's own render memory), never written back, so the
+   sim, frame data, hitboxes and replays are untouched, and they never delay input (any new state or move ends one at once).
+   Same fallback: a transition is drawn only when its whole set is on the atlas; otherwise the pose it sits on. */
+/*@transition*/
+const TRN={tr_intro:4,tr_win:4,tr_getup:4,tr_takeoff:2,tr_land:2,tr_dash_in:2,tr_dash_out:2,tr_turn:3,tr_crouch_in:2,tr_crouch_out:2,
+  tr_block_out:2,tr_chain_LM:2,tr_chain_MH:2,tr_cancel:1};
+// ticks each drawing holds (the whole transition = drawings x ticks); intro/win/getup are paced by their own clocks
+const TRN_T={tr_takeoff:3,tr_land:2,tr_dash_in:2,tr_dash_out:2,tr_turn:2,tr_crouch_in:2,tr_crouch_out:2,tr_block_out:2,tr_chain_LM:2,tr_chain_MH:2,tr_cancel:3};
+// G = {phase, pt, winner, t, ground}: the match phase + its tick, the round's winner, the sim tick, the floor line
+function trPick(f,r,G){
+  const t=G.t,mv=f.move,mk=f.mkey||'',grounded=f.y>=G.ground;
+  if(G.phase==='intro')return ['tr_intro',Math.min(3,(G.pt/24)|0)];
+  if((G.phase==='ko'||G.phase==='over')&&G.winner===f.side&&f.state!=='ko'&&f.state!=='oblit'&&!mv&&grounded)
+    return ['tr_win',G.phase==='over'?3:Math.min(3,(G.pt/10)|0)];
+  // render memory: what this fighter was doing at the last tick seen, and since when
+  const key=mv?'m:'+mk:f.state;
+  if(r.trT===undefined){r.trK=key;r.trT=t;r.trF=f.face;r.trFT=-99;r.trPrev='';}
+  if(key!==r.trK){r.trPrev=r.trK;r.trK=key;r.trT=t;}
+  if(f.face!==r.trF){r.trF=f.face;r.trFT=t;}
+  const since=t-r.trT,run=(set)=>{const k=(since/TRN_T[set])|0;return k<TRN[set]?[set,k]:null;};
+  if(mv){const was=r.trPrev.slice(2);
+    if(since<6&&r.trPrev.startsWith('m:')){
+      if((mv.isSpecial||mv.isSuper)&&/^[0-9j]?[LMH]$/.test(was))return since<Math.min(3,mv.su)?['tr_cancel',0]:null;
+      if(was==='5L'&&mk==='5M'&&since<Math.min(4,mv.su))return run('tr_chain_LM');
+      if(was==='5M'&&mk==='5H'&&since<Math.min(4,mv.su))return run('tr_chain_MH');}
+    return null;}
+  if(f.state==='kd'&&f.kd>0&&f.kd<=12)return ['tr_getup',3-(((f.kd-1)/3)|0)];
+  if(f.state==='block'&&f.blockstun>0&&f.blockstun<=4)return ['tr_block_out',f.blockstun>2?0:1];
+  if(f.state==='dash'&&f.dashT>12)return ['tr_dash_in',f.dashT>14?0:1];
+  if(f.state==='dash'&&f.dashT>0&&f.dashT<=4)return ['tr_dash_out',f.dashT>2?0:1];
+  if(f.state==='prejump')return ['tr_takeoff',0];
+  if(!grounded&&f.state==='jump'&&r.trPrev==='prejump'&&since<TRN_T.tr_takeoff)return ['tr_takeoff',1];
+  if(grounded&&f.land>0&&f.state==='stand')return ['tr_land',f.land>=2?0:1];
+  if(grounded&&(f.state==='stand'||f.state==='walk'||f.state==='walkb')&&t-r.trFT<TRN.tr_turn*TRN_T.tr_turn&&r.trFT>=r.trT-1)
+    return ['tr_turn',((t-r.trFT)/TRN_T.tr_turn)|0];
+  if(f.state==='crouch'&&/^(stand|walk|walkb)$/.test(r.trPrev))return run('tr_crouch_in');
+  if(f.state==='stand'&&r.trPrev==='crouch')return run('tr_crouch_out');
+  return null;}
+/*@transition-end*/
+const OB_K=st=>st<30?Math.min(3,(st/7.5)|0):st<F.OB_HIT?4+(((st-30)/12|0)%2):6;     // the Obliteration's 7 drawings over its beats
 function poseOf(f){
+  const L=poseLegacy(f),m=f.move,st=f.state,O=M&&M.E&&M.E.oblit,r=rmem(f);let n=null;
+  const ph=m?(()=>{const s0=m.su+(m.travel||0);return f.sf<=s0?[0,f.sf/Math.max(1,s0)]:f.sf<=s0+m.ac?[1,(f.sf-s0)/Math.max(1,m.ac)]:[2,(f.sf-s0-m.ac)/Math.max(1,m.rc)];})():null;
+  const d3=()=>ph[0],d4=()=>ph[0]===0?Math.min(1,(ph[1]*2)|0):ph[0]===1?2:3,d6=()=>ph[0]===0?Math.min(2,(ph[1]*3)|0):ph[0]===1?3:4+Math.min(1,(ph[1]*2)|0);
+  const d7=()=>ph[0]===0?Math.min(3,(ph[1]*4)|0):ph[0]===1?4+Math.min(1,(ph[1]*2)|0):6;
+  if(st==='dazed')n=['dazed',2,((f.animT/14)|0)%2];
+  else if(st==='oblit'&&O)n=['oblit',7,OB_K(O.st)];
+  else if(m&&m.isSuper)n=['super',7,d7()];
+  else if(m&&m.isSpecial&&/^[A-D]$/.test(f.mkey))n=['spec_'+f.mkey,7,d7()];
+  else if(m){const k=f.mkey;
+    if(k==='2L')n=['crouch_L',3,d3()];else if(k==='2M')n=['crouch_M',4,d4()];else if(k==='2H')n=['crouch_H',6,d6()];else if(k==='3H')n=['sweep',6,d6()];
+    else if(k==='jL')n=['air_L',3,d3()];else if(k==='jM')n=['air_M',4,d4()];else if(k==='jH')n=['air_H',6,d6()];
+    else if(k==='THROW')n=['throw',4,f.connected?(f.sf<=m.su+m.ac+10?2:3):ph[0]===0?0:ph[0]===1?1:3];}
+  else if(st==='crouch'&&f.y>=GROUND){if(!(r.crL>=f.animT-1&&r.crL<=f.animT))r.crA=f.animT;r.crL=f.animT;n=['crouch',2,f.animT-r.crA<5?0:1];}
+  const P=n?{name:n[0]+'_'+n[2],rot:L.rot*(m&&m.rise?1:0),sy:1,dy:L.dy,hide:L.hide,set:[n[0],n[1]],alt:L}:L;
+  if(st==='dazed'||st==='oblit'||st==='obliterated')return P;
+  const tr=trPick(f,r,{phase:M?M.phase:'fight',pt:M?M.pt:0,winner:M&&M.E?M.E.winner:-1,t:M&&M.E?M.E.t:0,ground:GROUND});
+  return tr?{name:tr[0]+'_'+tr[1],rot:0,sy:1,dy:L.dy,hide:false,set:[tr[0],TRN[tr[0]]],alt:P}:P;}
+function poseLegacy(f){
   const m=f.move,st=f.state,r=rmem(f);let act='idle',i=((f.animT/8)|0)%4,rot=0,sy=1,dy=0,dmg=true,hide=false;
+  if(st==='dazed'){act='hit';i=((f.animT/14)|0)%2;rot=0.05*Math.sin(f.animT*0.11);dmg=false;return {name:'hit_d2_'+i,rot,sy,dy,hide};}
+  if(st==='obliterated'){const O=M&&M.E.oblit,k=O?Math.max(0,O.st-F.OB_HIT):99;return {name:'destroyed_'+Math.min(9,(k/4)|0),rot:0,sy:1,dy:0,hide:false};}
+  if(st==='oblit'&&M&&M.E.oblit){return {name:'spec_'+OB_K(M.E.oblit.st),rot:0,sy:1,dy:0,hide:false};}
   if(st==='ko'){if(f.y<GROUND-2){act='hit';i=1;rot=clamp(f.vy*0.03,-0.6,0.6)*-1;}else{r.koT++;act='destroyed';i=Math.min(9,(r.koT/6)|0);dmg=false;}}
   else if(f.brk>0&&!m){act=f.hitstun>0?'hit':'block';i=0;sy=0.62;rot=0.06;}                   // BROUGHT TO A KNEE (SC172)
   else if(f.mountT>0){act='air';i=1;rot=-0.35;}
@@ -389,7 +489,14 @@ function poseOf(f){
   const fr=f.hp/f.maxhp,tier=fr<0.33?2:fr<0.66?1:0;
   return {name:act+(dmg&&tier&&/^(idle|walk|jab|heavy|hit)$/.test(act)?'_d'+tier:'')+'_'+i,rot,sy,dy,hide};}
 function drawSuit(f,E){
-  const r=rmem(f),p=poseOf(f),k=(f.bigT>0?2:1);
+  const r=rmem(f),L=LOOK[f.id]||LOOK.sandtrap,k=(f.bigT>0?2:1);
+  const p=Object.assign({},framePick(FAF_ATLAS[L.sid],poseOf(f),fr=>!fr[2]||sheet(L.sid,'color',fr[2])._ok));
+  const O=M&&M.E&&M.E.oblit,ob=O&&O.ph!=='window'&&O.result!=='miss'&&O.result!=='none'?O:null;let oa=1;
+  if(ob){const st=ob.st,win=f.side===ob.side;
+    if(!win&&ob.fx==='lift'&&st>=24&&st<F.OB_HIT)p.dy=-Math.min(260,(st-24)*9)+(st>F.OB_HIT-8?(st-(F.OB_HIT-8))*34:0);   // HEAVY LIFT: up out of sight, then down
+    if(win&&ob.fx==='lift'&&st>=24&&st<F.OB_HIT)p.dy=-Math.min(220,(st-24)*8)+(st>F.OB_HIT-8?(st-(F.OB_HIT-8))*30:0);
+    if(win&&ob.fx==='cloak'&&st>=8&&st<F.OB_HIT)oa=0.12+0.08*Math.sin(frame*0.7);                                 // SIX GHOSTS: cloaked
+    if(win&&ob.fx==='orb'&&st>=20&&st<54)p.dy=-Math.min(140,(st-20)*10)+(st>44?(st-44)*14:0);}                      // TO AND FRO: up on the wing-jets, down
   if(r.boostT>0)r.boostT--;if(r.flash>0)r.flash-=0.12;
   // shadow
   if(f.mountT<=0){X.save();X.fillStyle='rgba(0,0,0,.45)';X.beginPath();X.ellipse(f.x,GROUND+3,f.c.hurt[0]*1.3*(f.bigT>0?2:1)*clamp(1-(GROUND-f.y)/(400*Math.max(1,f.c.size)),0.3,1),7*Math.max(1,f.c.size*0.8),0,0,7);X.fill();X.restore();}
@@ -399,7 +506,8 @@ function drawSuit(f,E){
   if(f.c.rage&&f.rage)flash=Math.max(flash,0.15+0.1*Math.sin(frame*0.3));
   const inv=f.inv>0&&f.state!=='kd'&&!f.move?0.75:1;
   const cloak=f.cloakT>0?0.18+0.1*Math.sin(frame*0.5):1;
-  const ok=drawCell(f.id,p.name,f.x,f.y+p.dy,f.face,k,{rot:p.rot,sy:p.sy,flash,flashCol:superGlow?'#ffd24a':f.c.rage&&f.rage?'#ff5a1a':f.brk>0?'#ffd24a':'#fff',alpha:inv*cloak,hi:true});
+  if(f.state==='oblit')flash=Math.max(flash,0.25+0.2*Math.sin(frame*0.5));if(f.state==='dazed')flash=Math.max(flash,0.12+0.12*Math.sin(frame*0.25));
+  const ok=drawCell(f.id,p.name,f.x,f.y+(p.dy||0),f.face,k,{rot:p.rot,sy:p.sy,flash,flashCol:superGlow||f.state==='oblit'?'#ffd24a':f.c.rage&&f.rage?'#ff5a1a':f.brk>0||f.state==='dazed'?'#ffd24a':'#fff',alpha:inv*cloak*oa,hi:true});
   if(F.isGiant(f)&&f.orbLit){X.save();X.globalCompositeOperation='lighter';const oy=f.y-F.heightOf(f)*0.71,ox=f.x+f.face*f.c.hurt[0]*0.45;const gg=X.createRadialGradient(ox,oy,2,ox,oy,60);gg.addColorStop(0,'rgba(240,200,255,.95)');gg.addColorStop(1,'rgba(177,75,255,0)');X.fillStyle=gg;X.beginPath();X.arc(ox,oy,60,0,7);X.fill();X.restore();}
   if(f.mark>0){X.save();X.strokeStyle='#ff3b3b';X.lineWidth=2;const my=f.y-F.heightOf(f)*0.6,rr=14+4*Math.sin(frame*0.3);X.beginPath();X.arc(f.x,my,rr,0,7);X.moveTo(f.x-rr-8,my);X.lineTo(f.x+rr+8,my);X.moveTo(f.x,my-rr-8);X.lineTo(f.x,my+rr+8);X.stroke();X.restore();}
   if(!ok)drawFallback(f,k,p);
@@ -511,7 +619,7 @@ function drawMenu(){drawStage('pod19',null);X.fillStyle='rgba(5,7,13,.72)';X.fil
   txt('FOG AND FIRE',W/2,70,'#ff7a3a',34,true,'center');txt('MAIN MENU',W/2,98,'#9fb0bd',13,false,'center');
   for(let i=0;i<MENU.length;i++){const s=i===menuI;txt((s?'▶ ':'')+MENU[i]+(s?' ◀':''),W/2,138+i*31,s?'#ffd24a':'#cfd6e0',s?19:16,s,'center');}
   txt('CPU: ◀ '+DIFFS[diff]+' ▶',W/2,138+MENU.length*31+4,MENU[menuI]&&!/MOVE|SQUAD|HOW/.test(MENU[menuI])?'#7fd0ff':'#48505e',13,true,'center');
-  const d={'ARCADE':'Eight duels: Pod 19 bouts, the Great Ones at THE EXIT, then Kyle.','VERSUS CPU':'You against the CPU. Best of three.','VERSUS 2P':'Two players, one keyboard or two pads.','TRAINING':'Hitboxes, frame data, a dummy that never dies.','TAG 2 v 2':'Two suits a side. TAG (Y / M / RB) swaps your point; ASSIST (H / G / LT) calls the bench in for one move. KO the whole team.','TAG 3 v 3':'Three suits a side. The bench heals some red hull. One meter per team.','BOSS RAID — MORNINGSTAR':'Three suits against the giant: break its CHEST ORB, JETS, HIP JOINT and bring it to a knee.','MOVE LIST':'Every suit’s inputs.','SQUAD WAVES (BONUS)':'The old squad wave game (co-op PvE).','HOW TO PLAY':'Buttons and the system.'}[MENU[menuI]];
+  const d={'ARCADE':'Eight duels: Pod 19 bouts, the Great Ones at THE EXIT, then Kyle.','VERSUS CPU':'You against the CPU. Best of three.','VERSUS 2P':'Two players, one keyboard or two pads.','TRAINING':'Hitboxes, frame data, a dummy that never dies.','TAG 2 v 2':'Two suits a side. TAG (Y / M / RB) swaps your point; ASSIST (H / G / LT) calls the bench in for one move. KO the whole team.','TAG 3 v 3':'Three suits a side. The bench heals some red hull. One meter per team.','BOSS RAID — MORNINGSTAR':'Three suits against the giant: break its CHEST ORB, JETS, HIP JOINT and bring it to a knee.','MOVE LIST':'Every suit’s inputs, its super and its OBLITERATION.','SQUAD WAVES (BONUS)':'The old squad wave game (co-op PvE).','HOW TO PLAY':'Buttons and the system.'}[MENU[menuI]];
   txt(d,W/2,H-40,'#9fb0bd',12,false,'center');}
 function drawSelect(){drawStage('crawler',null);X.fillStyle='rgba(5,7,13,.62)';X.fillRect(0,0,W,H);
   const ids=F.ROSTER,two=mode==='versus2p',title={arcade:'ARCADE — CHOOSE YOUR SUIT',versus:sel.who?'CHOOSE THE CPU’S SUIT':'VERSUS CPU — CHOOSE YOUR SUIT',versus2p:'VERSUS — BOTH PLAYERS CHOOSE',training:sel.who?'CHOOSE THE DUMMY':'TRAINING — CHOOSE YOUR SUIT',tag:(sel.who?'CHOOSE THE CPU’S TEAM':'TAG '+sel.size+' v '+sel.size+' — CHOOSE YOUR TEAM')+' ('+(sel.team[sel.who].length+1)+'/'+sel.size+')',raid:'BOSS RAID — CHOOSE '+sel.size+' SUITS AGAINST MORNINGSTAR ('+Math.min(sel.size,sel.team[0].length+1)+'/'+sel.size+')'}[mode];
@@ -544,6 +652,7 @@ function drawResults(){const E=M.E,w=M.winner,wf=w>=0?E.f[w]:null;drawStage(cfg.
   const who=w<0?'DRAW':(cfg.cpu[w]?'CPU':'P'+(w+1))+' WINS';txt(who,W/2,80,w<0?'#cfd6e0':'#ffd24a',40,true,'center');
   if(wf){drawCell(wf.id,'spec_4',W/2-170,GROUND-30,1,1.2,{});txt(wf.c.name,W/2+40,200,wf.c.color,28,true,'left');txt(wf.c.pilot,W/2+40,222,'#9fb0bd',13,false,'left');txt('"'+wf.c.call+'"',W/2+40,256,'#cfd6e0',15,true,'left');}
   txt('ROUNDS '+M.wins[0]+' – '+M.wins[1],W/2+40,290,'#9fb0bd',13,false,'left');
+  if(M.oblit&&wf)txt('OBLITERATION — '+wf.c.oblit.name,W/2+40,160,'#ff5a1a',15,true,'left');
   const st=M.history.reduce((a,h)=>{for(let s=0;s<2;s++){a.c[s]=Math.max(a.c[s],h.stats.bestCombo[s]);a.sp[s]+=h.stats.specials[s];a.su[s]+=h.stats.supers[s];}return a;},{c:[0,0],sp:[0,0],su:[0,0]});
   txt('best combo '+st.c[0]+' / '+st.c[1]+' · specials '+st.sp[0]+' / '+st.sp[1]+' · supers '+st.su[0]+' / '+st.su[1],W/2+40,310,'#48505e',11,false,'left');
   if(cfg.mode==='arcade'&&w!==0)txt('THE FOG TOOK YOU. CONTINUES USED: '+ARC.cont,W/2+40,334,'#ff9b5b',12,true,'left');
@@ -552,39 +661,139 @@ function drawEnding(){drawStage('ishtar',null);X.fillStyle='rgba(5,7,13,.7)';X.f
   const L=['MORNING STAR FALLS BACK INTO THE FOG.','Kyle is gone before the smoke clears — not dead. Escaped.','The league scatters across the solar system.','','You saw it with your own two eyes.','','UNLOCKED: MORNING STAR · DEAD LETTER · WHITE WIDOW · UNDERTOW · ANVIL CHORUS'];
   for(let i=0;i<L.length;i++)txt(L[i],W/2,150+i*30,i===6?'#ffd24a':i===4?'#7fd0ff':'#cfd6e0',i===0?22:15,i===0||i===6,'center');
   drawCell(ARC.suit,'spec_4',W/2,GROUND+30,1,1,{alpha:0.8});}
-function drawMovelist(){X.fillStyle='#05070d';X.fillRect(0,0,W,H);const c=F.CHARS[mlId],rows=F.movelist(mlId);
-  drawCell(mlId,'spec_'+(((frame/9)|0)%7),150,330,1,1.1,{});
-  txt('◀ '+c.name+' ▶',30,40,c.color,26,true);txt(c.pilot+' · '+c.style,30,60,'#9fb0bd',12);txt('"'+c.call+'"',30,380,'#cfd6e0',12,true);
-  if(c.foilOf)txt('Great One: rides the '+F.CHARS[c.foilOf].name+' model in league colours',30,400,'#48505e',10);
-  if(locked(mlId))txt('LOCKED — clear ARCADE',30,420,'#ff9b5b',12,true);
-  txt('MOVE',300,40,'#48505e',11,true);txt('INPUT',488,40,'#48505e',11,true);txt('S-BUTTON',650,40,'#48505e',11,true);txt('DMG',760,40,'#48505e',11,true);txt('F',840,40,'#48505e',11,true);
-  const vis=rows.slice(mlScroll,mlScroll+17);let y=64,last='';
-  for(const r of vis){if(r.group!==last){txt(r.group,300,y,'#7fd0ff',11,true);y+=16;last=r.group;}
-    txt(r.name+(r.joe?' *':''),300,y,r.group==='SUPER'?'#ffd24a':'#fff',13,true);txt(r.input,488,y,'#ffd24a',13,true);txt(r.alt||'',650,y,'#9fb0bd',11);txt(r.dmg?String(Math.round(r.dmg)):'',760,y,'#cfd6e0',12);txt(r.fd.su+'f',840,y,'#9fb0bd',11);
-    if(r.note){y+=13;txt(r.note,312,y,'#6a7487',10);}y+=19;if(y>H-40)break;}
-  txt('◀ ▶ suit · ▲ ▼ scroll · ESC back · * = name is a guess, Joe to confirm',W/2,H-12,'#48505e',11,false,'center');}
+/* ---- MOVE LIST (52): generated at runtime from F.movelist(id), the same rows tools/movelist.mjs prints (no copied
+   tables). Paged (▲▼), suit by suit (◀▶), big type for 1080p and a phone held sideways; tap the arrows / BACK on a phone.
+   mlPages is pure: the duel gate lifts it out of this file and checks every row lands on exactly one page. ---- */
+const ML_CAP=404,ML_Y=92;
+/*@ml-pager*/
+function mlPages(rows,cap){const pages=[];let pg=[],h=0,last='';
+  const brk=()=>{if(pg.length)pages.push(pg);pg=[];h=0;};
+  for(const r of rows){const rh=r.group==='OBLITERATION'?84:r.note||r.alt?40:26,hdr=r.group!==last||!pg.length;
+    if(h+(hdr?24:0)+rh>cap)brk();
+    if(r.group!==last||!pg.length){pg.push({hdr:r.group,cont:r.group===last,h:24});h+=24;last=r.group;}
+    pg.push({row:r,h:rh});h+=rh;}
+  brk();return pages;}
+/*@ml-pager-end*/
+function fit_(s,px,w,b){X.font=FONT(px,b);if(X.measureText(s).width<=w)return s;while(s.length>3&&X.measureText(s+'…').width>w)s=s.slice(0,-1);return s+'…';}
+function wrap_(s,px,w){X.font=FONT(px);const out=[];let line='';for(const word of s.split(' ')){const t=line?line+' '+word:word;if(X.measureText(t).width>w&&line){out.push(line);line=word;}else line=t;}if(line)out.push(line);return out;}
+const GROUP_COL={SPECIAL:'#7fd0ff',SUPER:'#ffd24a',OBLITERATION:'#ff5a1a','TARGET COMBO':'#cfd6e0',SYSTEM:'#9fb0bd',NORMAL:'#9fb0bd'};
+function drawMovelist(){X.fillStyle='#05070d';X.fillRect(0,0,W,H);const c=F.CHARS[mlId],rows=F.movelist(mlId),pages=mlPages(rows,ML_CAP);
+  if(mlPage>=pages.length)mlPage=pages.length-1;const pg=pages[Math.max(0,mlPage)]||[];
+  const ids=mlFrom==='pause'&&M?fightIds():F.ROSTER;
+  // left: the suit
+  X.fillStyle='#0b0f18';X.fillRect(0,0,262,H);drawCell(mlId,'spec_'+(((frame/9)|0)%7),132,372,1,1.05*Math.min(1,180/c.hurt[1]),{});
+  txt('◀',16,44,'#7fd0ff',24,true);txt('▶',246,44,'#7fd0ff',24,true,'right');txt(fit_(c.name,22,190,true),131,44,c.color,22,true,'center');
+  txt(fit_(c.pilot,13,236),131,66,'#cfd6e0',13,true,'center');txt(fit_(c.style,12,236),131,84,'#9fb0bd',12,false,'center');
+  txt((c.cls||'SUIT')+' · hull '+c.hp,131,102,'#6a7487',12,false,'center');
+  const q=wrap_('"'+c.call+'"',13,236);for(let i=0;i<Math.min(2,q.length);i++)txt(q[i],131,410+i*18,'#cfd6e0',13,true,'center');
+  if(c.foilOf)txt(fit_('rides the '+F.CHARS[c.foilOf].name+' model',11,236),131,452,'#48505e',11,false,'center');
+  if(locked(mlId))txt('LOCKED — clear ARCADE',131,470,'#ff9b5b',12,true,'center');
+  txt((ids.indexOf(mlId)+1)+' / '+ids.length+(mlFrom==='pause'?' in this fight':''),131,492,'#48505e',11,false,'center');
+  // right: the page
+  const X0=280,XI=520,XD=880,XF=944;
+  txt('MOVE',X0,ML_Y-26,'#48505e',12,true);txt('INPUT',XI,ML_Y-26,'#48505e',12,true);txt('DMG',XD,ML_Y-26,'#48505e',12,true,'right');txt('START',XF,ML_Y-26,'#48505e',12,true,'right');
+  txt('PAGE '+(mlPage+1)+' / '+pages.length,XF,24,'#7fd0ff',13,true,'right');
+  X.fillStyle='#1a1f2b';X.fillRect(X0,ML_Y-18,XF-X0,1);
+  let y=ML_Y;
+  for(const it of pg){
+    if(it.hdr){txt(it.hdr+(it.cont?' (cont.)':''),X0,y+16,GROUP_COL[it.hdr]||'#7fd0ff',14,true);y+=it.h;continue;}
+    const r=it.row,ob=r.group==='OBLITERATION';
+    if(ob){X.fillStyle='rgba(255,90,26,.10)';X.fillRect(X0-6,y,XF-X0+12,it.h-4);X.fillStyle='#ff5a1a';X.fillRect(X0-6,y,3,it.h-4);}
+    txt(fit_(r.name+(r.joe?' *':''),17,XI-X0-12,true),X0,y+19,ob?'#ff7a3a':r.group==='SUPER'?'#ffd24a':'#fff',17,true);
+    txt(fit_(r.input,17,XD-XI-60,true),XI,y+19,'#ffd24a',17,true);
+    if(ob){X.font=FONT(13,true);const t=r.range,tw=X.measureText(t).width+14;X.fillStyle='#ff5a1a';X.fillRect(XF-tw,y+5,tw,19);X.textAlign='right';X.fillStyle='#05070d';X.fillText(t,XF-7,y+19);}   // no drop shadow on the badge (txt's shadow smeared it)
+    else{txt(r.dmg==null?'—':String(Math.round(r.dmg)),XD,y+19,'#cfd6e0',15,false,'right');txt(r.fd.su==null?'—':r.fd.su+'f',XF,y+19,'#9fb0bd',14,false,'right');}
+    const note=[r.alt?'S: '+r.alt:'',r.note||''].filter(Boolean).join(' · ');
+    if(ob){txt(fit_('range '+F.BAND_TXT[r.range]+' · after the deciding KO',13,XF-X0-12),X0+12,y+38,'#ff9b5b',13,false);
+      const L=wrap_(r.line||'',13,XF-X0-12);for(let i=0;i<Math.min(2,L.length);i++)txt(i===1&&L.length>2?fit_(L[1]+' '+L.slice(2).join(' '),13,XF-X0-12):L[i],X0+12,y+56+i*17,'#9fb0bd',13,false);}
+    else if(note)txt(fit_(note,13,XF-X0-12),X0+12,y+36,'#7a8494',13,false);
+    y+=it.h;}
+  // page / suit hints (tap targets on a phone: ◀ ▶ on the left panel, ▲ ▼ here, BACK top right)
+  if(mlPage>0)txt('▲',(X0+XF)/2,ML_Y-4,'#7fd0ff',16,true,'center');if(mlPage<pages.length-1)txt('▼ more',(X0+XF)/2,H-30,'#7fd0ff',14,true,'center');
+  X.fillStyle='#1a1f2b';X.fillRect(W-96,32,86,26);txt('BACK',W-53,50,'#cfd6e0',13,true,'center');
+  txt('◀ ▶ suit · ▲ ▼ page · ESC back · * = draft name, Joe to confirm',(X0+XF)/2,H-10,'#48505e',12,false,'center');}
 function drawHow(){X.fillStyle='#05070d';X.fillRect(0,0,W,H);txt('HOW TO PLAY',W/2,50,'#7fd0ff',28,true,'center');
   const L=[['BUTTONS','L light · M medium · H heavy · S special'],['P1 KEYBOARD','WASD move · J K L = L M H · I = S · U throw · O super'],['SOLO (VS CPU)','also ARROWS + Z X C = L M H · V = S · B throw · N super'],
     ['P2 KEYBOARD','ARROWS · Numpad 1 2 3 = L M H · Numpad 0 = S (or , . / and \')'],['GAMEPAD','X Y B/RB = L M H · A = S · LB throw · triggers super · START pause'],
     ['CHAINS','L → M → H on hit or block · crouching and standing mix · air: L → M → H'],['TARGET COMBOS','per suit (MOVE LIST) — a direction + button during a named normal'],
     ['LAUNCHER','↓H launches · press ↑ on hit to SUPER JUMP · air chain · air H spikes'],['SPECIALS','↓↘→ · ↓↙← · →↓↘ · [←]→ · [↓]↑ + L/M/H  — or S + a direction (85% damage)'],
     ['SUPER','full meter: ↓↘→↓↘→ + any, or S+H · cancel a special into it'],['DEFENCE','hold away to block · crouch-block lows · stand for overheads · L+M throw, L+M to tech'],
-    ['MOVEMENT','→→ dash · ←← backdash · ↑ jump (some suits jet-boost a second time)']];
-  for(let i=0;i<L.length;i++){txt(L[i][0],250,100+i*32,'#ffd24a',13,true,'right');txt(L[i][1],266,100+i*32,'#cfd6e0',13,false,'left');}
+    ['MOVEMENT','→→ dash · ←← backdash · ↑ jump (some suits jet-boost a second time)'],
+    ['OBLITERATION','after the deciding KO: your suit\'s finisher from its RANGE (MOVE LIST) · ESC / START = pause']];
+  for(let i=0;i<L.length;i++){txt(L[i][0],250,96+i*31,'#ffd24a',13,true,'right');txt(L[i][1],266,96+i*31,'#cfd6e0',13,false,'left');}
   txt('ENTER / ESC back',W/2,H-16,'#48505e',11,false,'center');}
 function drawPause(){X.fillStyle='rgba(5,7,13,.74)';X.fillRect(0,0,W,H);txt('PAUSED',W/2,H/2-150,'#7fd0ff',34,true,'center');const it=pauseItems();
   for(let i=0;i<it.length;i++){const s=i===pauseI;txt((s?'▶ ':'')+it[i]+(s?' ◀':''),W/2,H/2-96+i*32,s?'#ffd24a':'#9fb0bd',s?19:17,s,'center');}}
+
+/* ============================ OBLITERATION (52, render-only) ============================
+   Our own staging: the loser stands dazed with a RANGE gauge on screen (the needed band lit, a marker for the spacing,
+   the window draining); on a hit the stage drops to black, the finisher plays its beats (per-suit fx below, drawn from
+   the sim's fixed sequence clock E.oblit.st), the loser comes apart on its destroyed_* drawings, and the title card
+   reads OBLITERATION + the finisher's name + the winner's line. New oblit_0..6 drawings are used when the atlas has
+   them (FRAMES-52); until then the winner plays its spec_0..6 set under a gold flash. */
+function drawOblitWorld(E){const O=E.oblit;if(!O)return;const w=E.f[O.side],o=E.f[1-O.side];
+  const oh=F.heightOf(o),cx=o.x,cy=o.y-oh*0.55,wx=w.x+w.face*w.c.hurt[0]*0.6,wy=w.y-F.heightOf(w)*0.6,col=w.c.color,st=O.st,t=frame;
+  const beam=(x0,y0,x1,y1,c,wd,a)=>{X.globalAlpha=a;X.strokeStyle=c;X.lineWidth=wd;X.beginPath();X.moveTo(x0,y0);X.lineTo(x1,y1);X.stroke();};
+  X.save();X.globalCompositeOperation='lighter';
+  if(o.state==='dazed'){for(let i=0;i<5;i++){const a=t*0.08+i*1.2566;X.fillStyle=i%2?'#ffd24a':'#fff';X.globalAlpha=0.8;X.beginPath();X.arc(o.x+Math.cos(a)*o.c.hurt[0]*0.7,o.y-oh-12+Math.sin(a)*8,3.5,0,7);X.fill();}}
+  if(O.ph==='seq'&&st<F.OB_HIT){const k=Math.min(1,st/F.OB_HIT);
+    X.globalAlpha=0.5+0.3*Math.sin(t*0.4);X.strokeStyle=col;X.lineWidth=2;X.beginPath();X.arc(w.x,w.y-F.heightOf(w)*0.5,F.heightOf(w)*(0.55+0.1*Math.sin(t*0.3)),0,7);X.stroke();
+    switch(O.fx){
+      case 'drill':for(let i=0;i<10;i++){const a=t*0.5+i*0.63,rr=10+i*4;X.globalAlpha=0.7;X.fillStyle=i%2?col:'#fff';X.beginPath();X.arc(cx-o.face*o.c.hurt[0]*0.4+Math.cos(a)*rr*0.4,cy+Math.sin(a)*rr,3,0,7);X.fill();}
+        if(st>54)beam(cx-o.face*o.c.hurt[0],cy,cx+o.face*o.c.hurt[0]*1.4,cy,'#fff',4,0.8);break;
+      case 'fire':for(let i=0;i<18;i++){const ph=(t*0.07+i*0.37)%1;X.globalAlpha=Math.min(1,(1-ph)*0.55*k*1.6);X.fillStyle=i%3?'#ff7a1a':'#ffd24a';X.beginPath();X.arc(cx+Math.sin(i*2.1+t*0.1)*o.c.hurt[0]*1.1,o.y-ph*oh*1.3,10+ph*26,0,7);X.fill();}
+        if(st>54){X.globalAlpha=0.7;X.strokeStyle='#cfe6ff';X.lineWidth=3;X.beginPath();X.ellipse(cx,o.y,o.c.hurt[0]*2.2,oh*1.2*Math.min(1,(st-54)/24),0,Math.PI,0);X.stroke();}break;   // the emergency Atmodome closes
+      case 'vortex':for(let i=0;i<6;i++){const a=t*0.12+i*1.047,rx=o.c.hurt[0]*1.6,ry=oh*0.5,px=cx+Math.cos(a)*rx,py=cy+Math.sin(a)*ry*0.6;
+          X.globalAlpha=0.8;X.fillStyle='#7fd0ff';X.beginPath();X.arc(px,py,7,0,7);X.fill();if(i<2)beam(wx,wy,px,py,col,2,0.5);}
+        X.globalAlpha=0.35;X.strokeStyle='#3affe0';X.lineWidth=3;for(let j=0;j<3;j++){X.beginPath();X.ellipse(cx,cy,o.c.hurt[0]*(1.2+j*0.4),oh*0.15+j*10,0,0,7);X.stroke();}break;
+      case 'lift':if(st>=24)for(let i=0;i<6;i++){X.globalAlpha=0.6;X.fillStyle=i%2?'#ffd24a':'#ff7a1a';X.beginPath();X.arc(w.x+(i-2.5)*8,w.y+18+((t*7+i*5)%14),6,0,7);X.fill();}break;
+      case 'toxin':X.globalAlpha=0.6;X.strokeStyle='#caa01a';X.lineWidth=6;X.beginPath();for(let j=0;j<=16;j++){const xx=wx+(cx-wx)*j/16,yy=wy+(cy-wy)*j/16+Math.sin(t*0.4+j)*5;j?X.lineTo(xx,yy):X.moveTo(xx,yy);}X.stroke();
+        for(let i=0;i<10;i++){const a=i*0.9+t*0.03;X.globalAlpha=Math.min(0.5,0.44*k);X.fillStyle='#9bff5b';X.beginPath();X.arc(cx+Math.sin(a)*o.c.hurt[0],cy+Math.cos(a*1.3)*oh*0.4,18+12*k,0,7);X.fill();}break;
+      case 'cloak':for(let i=0;i<6;i++){const at=30+i*11;if(st<at||st>at+10)continue;const a=i*1.05+0.4,L=oh*0.7;beam(cx-Math.cos(a)*L,cy-Math.sin(a)*L,cx+Math.cos(a)*L,cy+Math.sin(a)*L,i%2?'#7fd0ff':'#fff',5,1-(st-at)/10);}break;   // six prong slashes, six angles
+      case 'water':{const lv=Math.min(1,st/40),g=X.createLinearGradient(0,GROUND-60*lv,0,GROUND);g.addColorStop(0,'rgba(46,155,216,0)');g.addColorStop(1,'rgba(46,155,216,.6)');X.globalAlpha=1;X.fillStyle=g;X.fillRect(-200,GROUND-60*lv,W+400,60*lv);
+        for(let j=0;j<12;j++){X.globalAlpha=0.3;X.fillStyle='#7fd0ff';X.beginPath();X.ellipse(cx+Math.sin(t*0.3+j)*o.c.hurt[0]*0.6,o.y-j*oh/10,o.c.hurt[0]*(1.2-j*0.05),8,0,0,7);X.fill();}break;}
+      case 'blades':for(let i=0;i<3;i++){const at=30+i*24;if(st<at||st>at+16)continue;const L=oh*0.35,a=(st-at)/16;beam(cx-L,cy-L,cx+L,cy+L,'#fff',4,1-a);beam(cx+L,cy-L,cx-L,cy+L,col,4,1-a);}break;
+      case 'case':{const p=Math.min(1,st/44),bx=w.x+(o.x-w.x)*p;X.globalAlpha=1;X.globalCompositeOperation='source-over';X.fillStyle='#2a2f3a';X.fillRect(bx-14,GROUND-14,28,14);X.fillStyle=(t>>3)%2?'#9fe8ff':'#ff3b3b';X.fillRect(bx-3,GROUND-12,6,3);X.globalCompositeOperation='lighter';break;}
+      case 'silk':for(let i=0;i<8;i++){const ex=i<4?F.XMIN:F.XMAX,ey=GROUND-40-i%4*70,q=Math.min(1,st/24);beam(cx,cy,cx+(ex-cx)*q,cy+(ey-cy)*q,'#e8f4ff',1.5,0.6);}
+        for(let j=0;j<Math.min(14,(st-24)/4);j++){X.globalAlpha=0.7;X.strokeStyle='#fff';X.lineWidth=2;X.beginPath();X.ellipse(cx,o.y-oh*(0.1+j*0.065),o.c.hurt[0]*1.05,6,0.15*(j%2?1:-1),0,7);X.stroke();}break;
+      case 'tide':{const up=st<70?Math.min(1,st/50):Math.max(0,1-(st-70)/26),hh=(oh+160)*up,xb=cx-o.face*o.c.hurt[0]*1.4;X.globalAlpha=0.75;X.fillStyle='#0e6a74';X.beginPath();X.moveTo(xb-90,GROUND);
+        for(let j=0;j<=12;j++)X.lineTo(xb-90+j*15,GROUND-hh+Math.sin(t*0.3+j)*8+(st>=70?j*6:0));X.lineTo(xb+90,GROUND);X.fill();break;}
+      case 'hammer':{const b=[30,54,78].find(b=>st>=b&&st<b+10);if(b!=null){const r=(st-b)*16;X.globalAlpha=0.7;X.strokeStyle='#e0a92e';X.lineWidth=3;X.beginPath();X.ellipse(cx,GROUND,r,r*0.2,0,0,7);X.stroke();}break;}
+      case 'orb':{const ox=w.x+w.face*w.c.hurt[0]*0.45,oy=w.y-F.heightOf(w)*0.71,gg=X.createRadialGradient(ox,oy,2,ox,oy,50);gg.addColorStop(0,'rgba(240,200,255,.95)');gg.addColorStop(1,'rgba(177,75,255,0)');X.globalAlpha=0.8;X.fillStyle=gg;X.beginPath();X.arc(ox,oy,50,0,7);X.fill();
+        if(st>=60){beam(ox,oy,cx,cy,'#d68bff',26,0.55+0.2*Math.sin(t*0.9));beam(ox,oy,cx,cy,'#fff',7,0.9);}break;}
+    }}
+  if(o.state==='obliterated'&&(frame&3)===0)spark(cx+(Math.random()-0.5)*o.c.hurt[0]*2,GROUND-10,'#5a6070',2,1.2,40);   // smoke over the wreck
+  X.globalCompositeOperation='source-over';
+  for(const q of OBR.words){q.t++;X.globalAlpha=Math.max(0,1-q.t/90);txt(q.w,q.x,q.y-q.t*0.3,'#9fe8ff',16,true,'center');}
+  X.restore();}
+function drawOblitHUD(E){const O=E.oblit;if(!O)return;const w=E.f[O.side],o=E.f[1-O.side],ob=w.c.oblit;
+  if(O.ph==='window'){const a=0.75+0.25*Math.sin(frame*0.25);
+    X.fillStyle='rgba(5,7,13,.78)';X.fillRect(W/2-250,H-128,500,98);X.strokeStyle='#ff5a1a';X.globalAlpha=a;X.strokeRect(W/2-249.5,H-127.5,499,97);X.globalAlpha=1;
+    txt('OBLITERATION',W/2,H-104,'#ff5a1a',22,true,'center');
+    txt(fit_(w.c.name+' · '+ob.name+'  '+F.MOTION_TXT[ob.motion]+' + '+ob.btn,15,480,true),W/2,H-84,'#ffd24a',15,true,'center');
+    // the RANGE gauge: gap -40..440 sim px across 440 screen px; the needed band lit, a marker for the spacing now
+    const gx=W/2-220,gw=440,gy=H-72,toX=g=>gx+clamp((g+40)/480,0,1)*gw;
+    X.fillStyle='#1a1f2b';X.fillRect(gx,gy,gw,12);
+    for(const k in F.OBLIT_BANDS){const b=F.OBLIT_BANDS[k],x0=toX(b[0]),x1=toX(b[1]),need=k===ob.range;X.fillStyle=need?'#ff5a1a':'#3a4252';X.fillRect(x0,gy,x1-x0,12);
+      txt(k,(x0+x1)/2,gy+26,need?'#ff9b5b':'#6a7487',11,need,'center');}
+    if(o.state==='dazed'){const g=F.oblitGap(w,o),band=F.oblitBand(E,w,o),x=toX(g);X.fillStyle=band===ob.range?'#4ade80':'#fff';X.beginPath();X.moveTo(x,gy-2);X.lineTo(x-7,gy-12);X.lineTo(x+7,gy-12);X.fill();
+      if(band==='FAR'&&g<F.OBLIT_BANDS.FAR[0])txt('WALL',x,gy-15,'#9fb0bd',10,true,'center');}
+    X.fillStyle='#ff5a1a';X.fillRect(gx,gy+30,gw*Math.max(0,1-O.win/F.OB_WIN),3);}
+  if(O.result==='obliterated'||(O.ph==='seq'&&O.st>=F.OB_HIT)){const k=OBR.hit>=0?frame-OBR.hit:99,sc=1+Math.max(0,(10-k)*0.06),a=clamp(k/6,0,1);
+    X.save();X.globalAlpha=a;X.translate(W/2,H/2-70);X.scale(sc,sc);txt('OBLITERATION',0,0,'#ff5a1a',62,true,'center');X.restore();X.globalAlpha=a;
+    txt(ob.name,W/2,H/2-28,OBR.col||w.c.color,26,true,'center');if(k>30)txt('"'+ob.say+'"',W/2,H/2,'#cfd6e0',15,true,'center');X.globalAlpha=1;}}
 
 /* ============================ FIGHT FRAME ============================ */
 let slow=0;
 function fightTick(){
   const E=M.E;
-  if(M.phase==='ko'&&M.pt<45){if(++slow%3)return;}           // KO slow-motion (render pacing only; the sim steps the same)
+  const O=E.oblit;      // KO slow-motion (render pacing only; the sim steps the same): the KO, or the first beat of an Obliteration window's fall
+  if((M.phase==='ko'&&M.pt<45&&!O)||(M.phase==='oblit'&&O&&O.ph==='window'&&O.fall<14&&E.f[1-O.side].state==='ko')){if(++slow%3)return;}
   const solo=!cfg.two;
   const ins=[0,1].map(s=>{
     if(cfg.cpu[s])return QA.idleCpu?{}:F.cpu(E,s,cfg.lvl[s]);
     if(cfg.mode==='training'&&s===1)return F.dummy(E,1,TR.dummy);
-    return sideInput(s,solo&&s===0);});
+    return unlatch(s,sideInput(s,solo&&s===0));});
   if(cfg.mode==='training')logInput(E,ins[0]);
   M.step(ins[0],ins[1]);onEvents(M.events);
   if(M.over){endT++;if(endT>70)onMatchOver();}
@@ -594,19 +803,20 @@ function drawFight(){const E=M.E;
   X.save();if(shake>0)X.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
   drawStage(cfg.stage,E,CAM);
   if(E.freeze>0){X.fillStyle='rgba(0,0,0,'+(0.5*Math.min(1,E.freeze/10))+')';X.fillRect(0,0,W,H);}
+  const ob=E.oblit;if(ob&&(ob.ph==='seq'||ob.result==='obliterated')){X.fillStyle='rgba(0,0,0,'+(ob.ph==='seq'?Math.min(0.62,ob.st/30):0.5)+')';X.fillRect(0,0,W,H);}
   X.save();camApply(CAM,1);
   drawZones(E);
   // the giant draws first (it's the backdrop of the duel); then whoever isn't attacking; a climber rides on top
   const order=E.f.slice().sort((a,b)=>(a.mountT>0?2:0)-(b.mountT>0?2:0)+(F.isGiant(b)?1:0)-(F.isGiant(a)?1:0)+((a.move?1:0)-(b.move?1:0))*0.5);for(const f of order)drawSuit(f,E);
   if(E.assists)for(const a of E.assists)drawSuit(a,E);
-  drawProjs(E);drawFX();
+  drawProjs(E);drawOblitWorld(E);drawFX();
   if(cfg.mode==='training'&&TR.hit)drawBoxes(E);
   X.restore();
   X.restore();
   if(TOUCH.on&&!cfg.cpu[0])drawTouch();
   if(flashW>0){X.fillStyle='rgba(255,240,200,'+(flashW*0.5)+')';X.fillRect(0,0,W,H);}
   if(E.freeze>0){const f=E.f[E.freezeBy];txt(f.c.super.name,W/2,140,'#ffd24a',40,true,'center');txt(f.c.pilot,W/2,166,'#cfd6e0',14,true,'center');}
-  drawHUD(E);if(cfg.mode==='training')drawTraining(E);
+  drawHUD(E);if(cfg.mode==='training')drawTraining(E);drawOblitHUD(E);
   if(paused)drawPause();}
 
 /* ============================ LOOP ============================ */
@@ -649,6 +859,12 @@ function touchRead(e){if(GS!=='fight')return;e.preventDefault();TOUCH.o={};let s
     else for(const b of TB)if(Math.hypot(x-b[1],y-b[2])<32)TOUCH.o[b[0]]=true;}
   if(!st)TOUCH.stick=null;TOUCH.cur=st;}
 if(TOUCH.on){for(const ev of ['touchstart','touchmove','touchend','touchcancel'])C.addEventListener(ev,touchRead,{passive:false});}
+// 52: on a phone, tap the round timer to pause; tap a pause item to pick it; in the move list tap ◀ ▶ (left panel), the
+// top / bottom of the list for ▲ ▼, and BACK (top right)
+C.addEventListener('touchstart',e=>{if(!TOUCH.on||!e.changedTouches.length)return;const [x,y]=touchXY(e.changedTouches[0]);
+  if(GS==='fight'&&!paused&&Math.abs(x-W/2)<44&&y<60){e.preventDefault();menuKey('Escape');return;}
+  if(GS==='fight'&&paused){const it=pauseItems(),i=Math.round((y-(H/2-96))/32);e.preventDefault();if(i>=0&&i<it.length&&Math.abs(x-W/2)<220){pauseI=i;menuKey('Enter');}return;}
+  if(GS==='movelist'){e.preventDefault();if(x>W-100&&y<64)menuKey('Escape');else if(x<262&&y<120)menuKey(x<131?'ArrowLeft':'ArrowRight');else if(x>=262)menuKey(y<H/2?'ArrowUp':'ArrowDown');}},{passive:false});
 function drawTouch(){X.save();X.globalAlpha=0.35;for(const b of TB){X.fillStyle=TOUCH.o[b[0]]?'#ffd24a':'#1a2030';X.beginPath();X.arc(b[1],b[2],28,0,7);X.fill();X.strokeStyle='#cfd6e0';X.stroke();X.globalAlpha=0.8;txt(b[3],b[1],b[2]+4,'#fff',11,true,'center');X.globalAlpha=0.35;}
   if(TOUCH.stick){X.strokeStyle='#cfd6e0';X.beginPath();X.arc(TOUCH.stick[0],TOUCH.stick[1],46,0,7);X.stroke();if(TOUCH.cur){X.fillStyle='#cfd6e0';X.beginPath();X.arc(TOUCH.cur[0],TOUCH.cur[1],18,0,7);X.fill();}}
   X.restore();}
